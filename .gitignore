@@ -1,0 +1,22 @@
+# Credentials and secrets
+.credentials
+credentials.env
+*.secret
+
+# Captured data (large files)
+*.bin
+*.npy
+captures/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
