@@ -145,18 +145,44 @@ This notebook increases the DMA region from 2 MB to 128 MB by:
 2. Configures DMA for 2-second capture at 15.625 MS/s (RP_DEC_8)
 3. Triggers immediate capture (no external trigger needed)
 4. Reads captured data from DMA buffer into numpy array
-5. Saves to `/tmp/cvbs_capture_<timestamp>.npy`
+5. Saves to `/tmp/cvbs_capture.npy` (fixed filename, overwrites previous)
 6. Displays preview plot of captured waveform
 
 ### To retrieve captured data:
 ```bash
-scp root@192.168.1.169:/tmp/cvbs_capture_*.npy .
+scp root@192.168.1.169:/tmp/cvbs_capture.npy .
 ```
 
 ### Hardware Setup Before Running:
 1. Set IN1 jumper to **LV** (±1V range)
 2. Connect CVBS video source to **IN1**
 3. Optional: Add 75Ω termination
+
+## Playback Notebook
+
+**File:** `cvbs_playback.ipynb`
+
+**Access URL:** http://192.168.1.169:8888/jlab/lab/tree/cvbs_playback.ipynb
+
+### What it does:
+1. Loads captured data from `/tmp/cvbs_capture.npy`
+2. Converts int16 ADC values to float DAC values (-1.0 to +1.0)
+3. Uses Deep Memory Generation (DMG) to output waveform at 15.625 MS/s
+4. Outputs through RF OUT 1
+
+### Requirements:
+- Red Pitaya OS 2.07-48 or later for DMG support
+- Captured data file must exist (`/tmp/cvbs_capture.npy`)
+
+### Hardware Setup:
+1. Connect RF OUT 1 to video display/capture device
+2. Output range is ±1V (matches standard CVBS levels)
+
+### DMG API Functions Used:
+- `rp_GenAxiGetMemoryRegion()` - get available memory
+- `rp_GenAxiSetDecimationFactor(8)` - set 15.625 MS/s output rate
+- `rp_GenAxiWriteWaveform()` - load waveform to deep memory
+- `rp_GenAxiSetEnable()` - start/stop output
 
 ## Network Streaming (For Longer Captures)
 
@@ -213,14 +239,46 @@ python stream_receiver.py --help-server
 | SD Card | ~10 MB/s | Too slow for full rate |
 | Ethernet | 62.5 MB/s | ✓ Can handle our 31.25 MB/s |
 
+## Current Status (2026-01-16)
+
+### What Works
+- **Capture:** `cvbs_capture.ipynb` successfully captures CVBS data to `/tmp/cvbs_capture.npy`
+- **DMA:** Deep Memory Acquisition works after expanding DMA region (requires `setup_dma_memory.ipynb` + reboot)
+- **Data Quality:** Captured CVBS shows correct voltage levels (-0.28V sync tip to +0.65V peak white)
+
+### In Progress
+- **Playback:** `cvbs_playback.ipynb` created but requires OS upgrade for full functionality
+- **OS Upgrade:** User is updating Red Pitaya OS to 2.07-48+ to enable Deep Memory Generation (DMG)
+
+### Known Issues
+1. **DMG not available on older OS** - Deep Memory Generation requires OS 2.07-48 or later
+2. **Standard AWG limited to 16384 samples** - Only ~1ms of video without DMG
+3. **Memory pressure** - Large numpy arrays can crash the Jupyter kernel on the memory-limited Red Pitaya
+4. **Kernel crashes** - Both capture and playback notebooks can crash if memory is exhausted
+
+### Files on Red Pitaya Jupyter Server
+| File | Purpose | Status |
+|------|---------|--------|
+| `cvbs_capture.ipynb` | Capture CVBS to file | Working |
+| `cvbs_playback.ipynb` | Play back captured CVBS | Needs DMG (OS upgrade) |
+| `setup_dma_memory.ipynb` | Expand DMA region | Working |
+| `setup_streaming.ipynb` | Network streaming setup | Not yet tested |
+| `check_version.ipynb` | Check OS version | Utility |
+
+### Local Files
+| File | Purpose |
+|------|---------|
+| `stream_receiver.py` | Receive streaming data on PC |
+| `.credentials` | Red Pitaya login (root/root) - gitignored |
+
 ## Next Steps
 
-1. ~~SSH into Red Pitaya and verify Python `rp` module availability~~
-2. ~~Check current DMA memory allocation~~
-3. ~~Create capture script using DMA with appropriate decimation~~
-4. Run capture notebook and verify data quality
-5. Implement post-processing to resample to exact 4fsc if needed
-6. Test with actual CVBS video source
+1. ~~Create capture script using DMA with appropriate decimation~~
+2. ~~Create playback script~~
+3. **Upgrade Red Pitaya OS to 2.07-48+** (in progress)
+4. Test playback with DMG after OS upgrade
+5. Implement network streaming for longer captures
+6. Post-processing to resample to exact 4fsc if needed
 
 ## References
 
