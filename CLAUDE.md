@@ -7,7 +7,7 @@ Create a "hello world" RF capture application for the Red Pitaya Stemlab 125-14 
 ## Target Hardware
 
 **Device:** Red Pitaya Stemlab 125-14
-**Network Address:** 192.168.1.169
+**Network Address:** 192.168.1.171
 **Interface:** Jupyter Notebook server running on the device
 
 ### Key Hardware Specifications
@@ -116,7 +116,7 @@ Example CVBS readings (LV mode):
 
 ### Setup Notebook: `setup_dma_memory.ipynb`
 
-**URL:** http://192.168.1.169:8888/jlab/lab/tree/setup_dma_memory.ipynb
+**URL:** http://192.168.1.171:8888/jlab/lab/tree/setup_dma_memory.ipynb
 
 This notebook increases the DMA region from 2 MB to 128 MB by:
 1. Modifying `/opt/redpitaya/dts/<fpga_model>/dtraw.dts`
@@ -138,7 +138,7 @@ This notebook increases the DMA region from 2 MB to 128 MB by:
 
 **Location on Red Pitaya:** Available at root of Jupyter server
 
-**Access URL:** http://192.168.1.169:8888/jlab/lab/tree/cvbs_capture.ipynb
+**Access URL:** http://192.168.1.171:8888/jlab/lab/tree/cvbs_capture.ipynb
 
 ### What it does:
 1. Initializes Red Pitaya FPGA and acquisition hardware
@@ -150,7 +150,7 @@ This notebook increases the DMA region from 2 MB to 128 MB by:
 
 ### To retrieve captured data:
 ```bash
-scp root@192.168.1.169:/tmp/cvbs_capture.npy .
+scp root@192.168.1.171:/tmp/cvbs_capture.npy .
 ```
 
 ### Hardware Setup Before Running:
@@ -162,7 +162,7 @@ scp root@192.168.1.169:/tmp/cvbs_capture.npy .
 
 **File:** `cvbs_playback.ipynb`
 
-**Access URL:** http://192.168.1.169:8888/jlab/lab/tree/cvbs_playback.ipynb
+**Access URL:** http://192.168.1.171:8888/jlab/lab/tree/cvbs_playback.ipynb
 
 ### What it does:
 1. Loads captured data from `/tmp/cvbs_capture.npy`
@@ -215,12 +215,12 @@ python stream_receiver.py --help-server
 ```
 
 **Red Pitaya setup notebook:** `setup_streaming.ipynb`
-- URL: http://192.168.1.169:8888/jlab/lab/tree/setup_streaming.ipynb
+- URL: http://192.168.1.171:8888/jlab/lab/tree/setup_streaming.ipynb
 
 ### Quick Start
 
 1. **On Red Pitaya:** Start streaming via web interface
-   - Open http://192.168.1.169/
+   - Open http://192.168.1.171/
    - Click "Streaming" application
    - Set: Mode=Network, Decimation=8, Channel=CH1, Protocol=TCP
    - Click "RUN"

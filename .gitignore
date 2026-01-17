@@ -6,6 +6,7 @@ credentials.env
 # Captured data (large files)
 *.bin
 *.npy
+*_meta.txt
 captures/
 
 # Python
