@@ -407,10 +407,11 @@ python convert_to_playback.py cvbs_capture.bin
 
 ## resample_capture.py
 
-Resample capture files to a lower sample rate with anti-aliasing lowpass filtering. Useful for:
-- Creating files for continuous DAC streaming (which is limited to ~5 MS/s)
-- Reducing file sizes for analysis
-- Converting to WAV format for viewing in Audacity
+Resample capture files with proper NTSC timing alignment. First resamples to 4×fsc (14.31818 MS/s) for correct timing, then to the target rate.
+
+### Why 4×fsc Matters
+
+The Red Pitaya captures at 15.625 MS/s, which gives **993.056 samples per NTSC line** - a fractional number that causes timing drift over time. Resampling via 4×fsc gives **exactly 910 samples per line**, eliminating the fractional accumulation error.
 
 ### Synopsis
 
@@ -418,12 +419,14 @@ Resample capture files to a lower sample rate with anti-aliasing lowpass filteri
 resample_capture.py <input.bin> <target_rate> [-o output.wav]
 ```
 
-### Arguments
+### Presets
 
-| Argument | Description |
-|----------|-------------|
-| `input.bin` | Input capture file (int8 samples from rpsa_client) |
-| `target_rate` | Target sample rate: `4M`, `4000000`, `5.2e6`, etc. |
+| Preset | Sample Rate | Samples/Line | Notes |
+|--------|-------------|--------------|-------|
+| `4fsc` | 14.31818 MS/s | 910 | Standard CVBS digitization rate |
+| `2fsc` | 7.15909 MS/s | 455 | Half bandwidth |
+| `1fsc` | 3.57954 MS/s | 227.5 | Color subcarrier rate |
+| `0.5fsc` | 1.78977 MS/s | 113.75 | Minimum for sync preservation |
 
 ### Options
 
@@ -433,18 +436,22 @@ resample_capture.py <input.bin> <target_rate> [-o output.wav]
 | `--original-rate RATE` | Source sample rate (default: 15.625M) |
 | `--header N` | Manual header size in bytes |
 | `--no-skip-header` | Don't auto-detect/skip file header |
+| `--direct` | Skip 4fsc intermediate (not recommended) |
 
 ### Examples
 
 ```bash
-# Resample to 4 MS/s (below streaming limit for continuous playback)
+# Resample to 4×fsc (best quality, standard CVBS rate)
+python resample_capture.py capture.bin 4fsc
+
+# Resample to 2×fsc (half bandwidth, smaller file)
+python resample_capture.py capture.bin 2fsc
+
+# Custom rate for DAC streaming (~5 MS/s limit)
 python resample_capture.py capture.bin 4M
 
-# Resample to 5.208 MS/s (125/24, 1/3 of original rate)
-python resample_capture.py capture.bin 5.208M
-
 # Specify output file
-python resample_capture.py capture.bin 4M -o downsampled.wav
+python resample_capture.py capture.bin 4fsc -o output.wav
 ```
 
 ### Output
@@ -459,12 +466,53 @@ python resample_capture.py capture.bin 4M -o downsampled.wav
 rpsa_client.exe -o -h 192.168.0.6 -f wav -d resampled.wav -r inf
 ```
 
-### Notes
+---
 
-- Original captures are typically 15.625 MS/s (125 MS/s / 8 decimation)
-- Red Pitaya DAC streaming is limited to ~5 MS/s continuous
-- Downsampling to 4-5 MS/s enables longer playback but loses high frequencies
-- At 4 MS/s, color information (3.58 MHz subcarrier) is lost, but sync and luminance are preserved
+## analyze_bin.py
+
+Analyze CVBS timing from a capture file to verify capture quality and identify timing errors.
+
+### Synopsis
+
+```
+analyze_bin.py <capture.bin> [max_seconds]
+```
+
+### What It Measures
+
+- **VBI (Vertical Blanking Interval)**: Field timing (expected: 16683 µs)
+- **HBI (Horizontal Blanking Interval)**: Line timing (expected: 63.556 µs)
+- **Statistics**: min, max, mean, median, std, jitter
+- **Timing Relationship**: Samples per line, fractional errors
+
+### Examples
+
+```bash
+# Analyze entire capture
+python analyze_bin.py capture.bin
+
+# Analyze first 2 seconds only (faster)
+python analyze_bin.py capture.bin 2
+
+# Specify different sample rate
+python analyze_bin.py capture.bin --rate 14.318M
+```
+
+### Detection Method
+
+- Sync pulses detected at threshold halfway between blanking and sync tip
+- VBI identified by broad pulses (>27µs width)
+- HBI measured only in active video regions (excluding VBI)
+- Outliers filtered (intervals outside ±10% of expected)
+
+### Key Finding
+
+At 15.625 MS/s, each NTSC line is 993.056 samples (fractional). This causes:
+- 0.056 samples/line drift
+- 14.6 samples/field cumulative error
+- 876 samples/second timing slip
+
+This is why resampling to 4×fsc (910 samples/line exactly) is recommended
 
 ---
 
