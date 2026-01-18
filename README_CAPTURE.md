@@ -267,45 +267,39 @@ Playback uses Deep Memory Generation (DMG) to output captured waveforms through 
 | Metric | Value |
 |--------|-------|
 | Max DMG memory | 128 MB |
-| Max playback duration | ~8.2 seconds (at 15.625 MS/s with float32) |
+| Max playback duration | **~4.3 seconds** (67M samples at 15.625 MS/s) |
 | Output rate | 15.625 MS/s (decimation 8 from 125 MS/s) |
 | Output voltage | ±1V (matches CVBS levels) |
 
+**Note:** DMG stores data as int16 internally (2 bytes/sample), regardless of input format. The API converts float32 input to int16 when writing. This means 128 MB = 64M samples = 4.3 seconds max.
+
 ---
 
-## Playback Workflow
+## Playback Workflow (Recommended)
 
-### Step 1: Convert Capture to Playback Format
+The optimized workflow reads int8 captures directly—no intermediate conversion needed.
 
-The Red Pitaya DMG API requires float32 data (-1.0 to 1.0). Convert your 8-bit capture:
+### Step 1: Capture
 
-```bash
-python convert_to_playback.py /path/to/capture.bin
-```
-
-This creates a `.f32` file in the same directory.
-
-**Note:** The 8-bit streaming capture is about 30 MB for 2 seconds. The float32 conversion is 4x larger (~120 MB). Files exceeding 128 MB will be automatically truncated to fit DMG memory.
+Use the Red Pitaya streaming app to capture to a .bin file.
 
 ### Step 2: Upload to Red Pitaya
 
 ```bash
-scp capture.f32 root@192.168.0.6:/home/jupyter/cvbs_project/cvbs_captures/
+scp capture.bin root@192.168.0.6:/tmp/
 ```
 
 ### Step 3: Play Back
 
-Open the playback notebook on Red Pitaya:
-- URL: http://192.168.0.6:8888/lab/tree/cvbs_dmg_playback.ipynb
-
-Edit the configuration cell:
-```python
-WAVEFORM_FILE = "/home/jupyter/cvbs_project/cvbs_captures/capture.f32"
-LOOP_COUNT = 0      # 0=once, N=N+1 times, -1=infinite
-OUTPUT_CHANNEL = 1  # RF OUT 1
+```bash
+ssh root@192.168.0.6 "python3 /home/jupyter/cvbs_project/cvbs_playback_optimized.py --skip-header /tmp/capture.bin"
 ```
 
-Run all cells to play back the waveform.
+Options:
+- `--skip-header` - Auto-detect and skip file header (recommended)
+- `--loop N` - Loop N additional times (0=once, -1=infinite)
+- `--no-play` - Load only, don't play (for testing)
+- `--chunk-mb N` - Chunk size in MB (default: 8)
 
 ### Hardware Setup for Playback
 
@@ -314,9 +308,87 @@ Run all cells to play back the waveform.
 
 ---
 
-## convert_to_playback.py
+## cvbs_playback_optimized.py
 
-Local script to convert 8-bit capture files to float32 playback format.
+**Recommended playback method.** Streams int8 capture directly to DMG with minimal memory usage.
+
+### Synopsis
+
+```
+cvbs_playback_optimized.py [OPTIONS] <capture.bin>
+```
+
+### Description
+
+Reads int8 capture files directly, converts to float32 in small chunks (~8 MB), and writes to DMG with offset. This minimizes Python memory usage (8 MB vs 120+ MB) and eliminates the need for intermediate float32 files.
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--skip-header` | Auto-detect and skip file header |
+| `--header N` | Manual header size in bytes |
+| `--chunk-mb N` | Chunk size in MB (default: 8) |
+| `--no-play` | Load to DMG but don't play |
+| `--loop N` | 0=once, N=N+1 times, -1=infinite |
+
+### Examples
+
+Basic playback:
+```bash
+python3 cvbs_playback_optimized.py --skip-header capture.bin
+```
+
+Infinite loop:
+```bash
+python3 cvbs_playback_optimized.py --skip-header --loop -1 capture.bin
+```
+
+Load only (no playback):
+```bash
+python3 cvbs_playback_optimized.py --skip-header --no-play capture.bin
+```
+
+### Memory Efficiency
+
+| Method | Python Memory | File on Disk |
+|--------|---------------|--------------|
+| Old (float32 file) | ~120 MB | ~120 MB (.f32) |
+| **New (chunked int8)** | **~8 MB** | Original .bin only |
+
+---
+
+## Legacy: cvbs_dmg_playback.ipynb
+
+Jupyter notebook for interactive DMG playback. Uses float32 files.
+
+### Location
+
+- On Red Pitaya: http://192.168.0.6:8888/lab/tree/cvbs_project/cvbs_dmg_playback.ipynb
+- Local copy: `cvbs_dmg_playback.ipynb`
+
+### When to Use
+
+Use the notebook when you want:
+- Interactive playback controls (play/stop/loop)
+- To experiment with the DMG API
+- Pre-converted float32 files
+
+For automated/scripted playback, use `cvbs_playback_optimized.py` instead.
+
+### Workflow (Legacy)
+
+1. Convert capture: `python convert_to_playback.py capture.bin`
+2. Upload: `scp capture.f32 root@192.168.0.6:/home/jupyter/cvbs_project/cvbs_captures/`
+3. Open notebook and run cells
+
+---
+
+## convert_to_playback.py (Legacy)
+
+Converts 8-bit captures to float32 for use with the notebook.
+
+**Note:** This is no longer needed if using `cvbs_playback_optimized.py`.
 
 ### Synopsis
 
@@ -324,115 +396,125 @@ Local script to convert 8-bit capture files to float32 playback format.
 convert_to_playback.py <input.bin> [output.f32]
 ```
 
-### Description
-
-Converts signed 8-bit integer samples to float32 normalized to -1.0 to 1.0 range. Aligns output to 128-byte boundaries as required by DMG hardware.
-
 ### Examples
 
-Convert with automatic output name:
 ```bash
 python convert_to_playback.py cvbs_capture.bin
 # Creates cvbs_capture.f32
 ```
 
-Specify output path:
+---
+
+## resample_capture.py
+
+Resample capture files to a lower sample rate with anti-aliasing lowpass filtering. Useful for:
+- Creating files for continuous DAC streaming (which is limited to ~5 MS/s)
+- Reducing file sizes for analysis
+- Converting to WAV format for viewing in Audacity
+
+### Synopsis
+
+```
+resample_capture.py <input.bin> <target_rate> [-o output.wav]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `input.bin` | Input capture file (int8 samples from rpsa_client) |
+| `target_rate` | Target sample rate: `4M`, `4000000`, `5.2e6`, etc. |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output FILE` | Output WAV file (default: `<input>_<rate>.wav`) |
+| `--original-rate RATE` | Source sample rate (default: 15.625M) |
+| `--header N` | Manual header size in bytes |
+| `--no-skip-header` | Don't auto-detect/skip file header |
+
+### Examples
+
 ```bash
-python convert_to_playback.py capture.bin /tmp/playback.f32
+# Resample to 4 MS/s (below streaming limit for continuous playback)
+python resample_capture.py capture.bin 4M
+
+# Resample to 5.208 MS/s (125/24, 1/3 of original rate)
+python resample_capture.py capture.bin 5.208M
+
+# Specify output file
+python resample_capture.py capture.bin 4M -o downsampled.wav
 ```
 
 ### Output
 
-- Creates `.f32` file (float32, little-endian)
-- Prints conversion statistics and duration
-- Warns if file exceeds 128 MB DMG limit
+- 16-bit mono WAV file at the specified sample rate
+- Data aligned to 128 bytes (Red Pitaya DAC streaming requirement)
+- Viewable in Audacity for waveform analysis
+
+### Streaming the Resampled File
+
+```bash
+rpsa_client.exe -o -h 192.168.0.6 -f wav -d resampled.wav -r inf
+```
+
+### Notes
+
+- Original captures are typically 15.625 MS/s (125 MS/s / 8 decimation)
+- Red Pitaya DAC streaming is limited to ~5 MS/s continuous
+- Downsampling to 4-5 MS/s enables longer playback but loses high frequencies
+- At 4 MS/s, color information (3.58 MHz subcarrier) is lost, but sync and luminance are preserved
 
 ---
 
-## cvbs_dmg_playback.ipynb
+## Technical Details
 
-Jupyter notebook for DMG playback on Red Pitaya.
+### DMG Internal Storage
 
-### Location
+The DMG API accepts float32 input but stores data as **int16** internally:
+- Input: float32 array (-1.0 to 1.0)
+- Storage: int16 (2 bytes/sample)
+- Conversion: Handled by `rp_GenAxiWriteWaveform()`
 
-- On Red Pitaya: http://192.168.0.6:8888/lab/tree/cvbs_dmg_playback.ipynb
-- Local copy: `cvbs_dmg_playback.ipynb`
-
-### Configuration
-
-Edit the first code cell:
-
+Memory reservation must use int16 size:
 ```python
-WAVEFORM_FILE = "/home/jupyter/cvbs_project/cvbs_captures/cvbs_playback.f32"
-DECIMATION = 8           # Output rate: 125/8 = 15.625 MS/s
-LOOP_COUNT = 0           # 0=once, N=loop N times, -1=infinite
-OUTPUT_CHANNEL = 1       # 1 or 2
+waveform_bytes = num_samples * 2  # NOT * 4
 ```
 
-### Playback Controls
+### Chunked Writing
 
-After loading the waveform, use these functions:
-
+The `rp_GenAxiWriteWaveformOffset(channel, offset, data)` function allows writing in chunks:
 ```python
-play()      # Play once
-play(5)     # Play 6 times (1 + 5 loops)
-play(-1)    # Play infinitely
-stop()      # Stop playback
+# Write 1M samples starting at offset 0
+rp.rp_GenAxiWriteWaveformOffset(CH, 0, chunk1)
+# Write next 1M samples
+rp.rp_GenAxiWriteWaveformOffset(CH, 1000000, chunk2)
 ```
 
-### Memory Management
+This enables streaming large files with minimal memory.
 
-The notebook:
-1. Loads the float32 file into Python memory
-2. Writes it to DMG (DDR RAM)
-3. Frees Python memory
-4. Plays from DMG
+### Alignment Requirements
 
-This allows playback of files up to 128 MB despite the Red Pitaya's limited RAM.
-
----
-
-## Playback Data Format
-
-### Float32 Files (.f32)
-
-- Format: Raw float32 (32-bit IEEE 754)
-- Byte order: Little-endian (native)
-- Value range: -1.0 to 1.0
-- Sample rate: 15.625 MS/s (when played with decimation 8)
-
-### Conversion Formula
-
-From 8-bit capture:
-```python
-float_value = int8_value / 128.0
-```
-
-From 16-bit capture:
-```python
-float_value = int16_value / 32768.0
-```
+DMG requires 128-byte alignment (64 int16 samples). The playback scripts handle this automatically by truncating to aligned boundaries.
 
 ---
 
 ## Playback Troubleshooting
 
-### "Write error" or memory issues
-- Ensure file size is ≤128 MB
-- Restart Jupyter kernel and try again
-- Check DMG memory with `rp.rp_GenAxiGetMemoryRegion()`
+### "Input buffer size does not match memory size" warning
+- Memory reservation used wrong multiplier (×4 instead of ×2)
+- Use `cvbs_playback_optimized.py` which handles this correctly
 
 ### No output signal
 - Verify RF OUT 1 connection
-- Check `rp.rp_GenOutEnable()` was called
-- Ensure waveform range is within -1.0 to 1.0
+- Check that playback completed without errors
+- Try `--loop -1` to play continuously
 
 ### Kernel crashes during load
-- File may be too large for Python to load
-- Convert on local machine first (not on Red Pitaya)
-- Use pre-converted float32 files only
+- File too large for available RAM
+- Use `cvbs_playback_optimized.py` (chunked loading)
 
-### Output clipping
-- Input values outside -1.0 to 1.0 will clip
-- Check source capture levels
-- May need to scale: `waveform = waveform * 0.8` (80% amplitude)
+### Playback too short
+- DMG hardware limit: 128 MB = 4.3 seconds max
+- Longer playback requires continuous DAC streaming (limited to ~5 MS/s)

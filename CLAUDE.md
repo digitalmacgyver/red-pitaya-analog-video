@@ -246,18 +246,26 @@ python stream_receiver.py --help-server
   - `cvbs_capture.ipynb` - File-based DMA capture to Red Pitaya filesystem
   - Red Pitaya Streaming App + Windows client - Network streaming for longer captures
   - `stream_capture.py` - Custom SSH-triggered streaming (alternative method)
-- **Playback:** `cvbs_dmg_playback.ipynb` - DMG playback working (up to ~8 seconds)
+- **Playback:** `cvbs_playback_optimized.py` - Optimized DMG playback (up to ~4.3 seconds)
 - **DMA/DMG:** 128 MB region configured and working for both capture and playback
 - **Data Quality:** Captured CVBS shows correct voltage levels
 
-### Playback Workflow
-1. Capture using streaming app (8-bit, 15.625 MS/s)
-2. Convert to float32: `python convert_to_playback.py capture.bin`
-3. Upload: `scp capture.f32 root@192.168.0.6:/home/jupyter/cvbs_project/cvbs_captures/`
-4. Play via notebook: `cvbs_dmg_playback.ipynb`
+### Playback Workflow (Recommended)
+1. Capture using streaming app (8-bit, 15.625 MS/s) → .bin file
+2. Upload: `scp capture.bin root@192.168.0.6:/tmp/`
+3. Play: `ssh root@192.168.0.6 "python3 /home/jupyter/cvbs_project/cvbs_playback_optimized.py --skip-header /tmp/capture.bin"`
+
+No intermediate conversion needed - the optimized script reads int8 directly and converts in chunks.
+
+### DMG Technical Details
+- **API input:** float32 (-1.0 to 1.0)
+- **Internal storage:** int16 (2 bytes/sample) - API converts automatically
+- **Memory reservation:** Must use `num_samples * 2` bytes (not * 4)
+- **Max duration:** 128 MB / 2 bytes = 64M samples = **4.3 seconds**
+- **Chunked writes:** Use `rp_GenAxiWriteWaveformOffset(ch, offset, data)` for memory efficiency
 
 ### Known Limitations
-1. **DMG memory limit:** 128 MB = ~8 seconds max playback (float32 format)
+1. **DMG memory limit:** 128 MB = ~4.3 seconds max playback (int16 storage internally)
 2. **Streaming playback:** DAC streaming limited to ~5 MS/s (too slow for CVBS)
 3. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
 
@@ -265,7 +273,8 @@ python stream_receiver.py --help-server
 | File | Purpose | Status |
 |------|---------|--------|
 | `cvbs_capture.ipynb` | Capture CVBS to file | Working |
-| `cvbs_dmg_playback.ipynb` | DMG playback | Working |
+| `cvbs_playback_optimized.py` | Optimized DMG playback | **Recommended** |
+| `cvbs_dmg_playback.ipynb` | DMG playback (legacy) | Working |
 | `setup_dma_memory.ipynb` | Expand DMA region | Working |
 | `/home/jupyter/cvbs_project/cvbs_captures/` | Directory for playback files | Active |
 
@@ -273,7 +282,8 @@ python stream_receiver.py --help-server
 | File | Purpose |
 |------|---------|
 | `stream_capture.py` | SSH-triggered streaming capture |
-| `convert_to_playback.py` | Convert 8-bit .bin to float32 .f32 for playback |
+| `cvbs_playback_optimized.py` | Optimized playback script (reads int8 directly) |
+| `convert_to_playback.py` | Legacy: Convert 8-bit .bin to float32 .f32 |
 | `visualize_capture.py` | Visualize captured data |
 | `cvbs_dmg_playback.ipynb` | Local copy of playback notebook |
 | `README_CAPTURE.md` | Capture and playback documentation |
@@ -286,9 +296,11 @@ python stream_receiver.py --help-server
 3. ~~Upgrade Red Pitaya OS to 2.07-48+~~
 4. ~~Test playback with DMG~~
 5. ~~Implement network streaming for longer captures~~
-6. Post-processing to resample to exact 4fsc if needed
-7. Software timebase correction for VHS captures
-8. Extend playback beyond 8 seconds (if possible with different approach)
+6. ~~Fix DMG memory reservation (was using float32 size, now uses int16)~~
+7. ~~Optimize playback to read int8 directly (no intermediate float32 file)~~
+8. Post-processing to resample to exact 4fsc if needed
+9. Software timebase correction for VHS captures
+10. Investigate continuous DAC streaming for longer playback (currently limited to ~5 MS/s)
 
 ## References
 
