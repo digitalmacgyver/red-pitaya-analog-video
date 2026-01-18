@@ -7,7 +7,7 @@ Create a "hello world" RF capture application for the Red Pitaya Stemlab 125-14 
 ## Target Hardware
 
 **Device:** Red Pitaya Stemlab 125-14
-**Network Address:** 192.168.1.171
+**Network Address:** 192.168.0.6
 **Interface:** Jupyter Notebook server running on the device
 
 ### Key Hardware Specifications
@@ -116,7 +116,7 @@ Example CVBS readings (LV mode):
 
 ### Setup Notebook: `setup_dma_memory.ipynb`
 
-**URL:** http://192.168.1.171:8888/jlab/lab/tree/setup_dma_memory.ipynb
+**URL:** http://192.168.0.6:8888/jlab/lab/tree/setup_dma_memory.ipynb
 
 This notebook increases the DMA region from 2 MB to 128 MB by:
 1. Modifying `/opt/redpitaya/dts/<fpga_model>/dtraw.dts`
@@ -138,7 +138,7 @@ This notebook increases the DMA region from 2 MB to 128 MB by:
 
 **Location on Red Pitaya:** Available at root of Jupyter server
 
-**Access URL:** http://192.168.1.171:8888/jlab/lab/tree/cvbs_capture.ipynb
+**Access URL:** http://192.168.0.6:8888/jlab/lab/tree/cvbs_capture.ipynb
 
 ### What it does:
 1. Initializes Red Pitaya FPGA and acquisition hardware
@@ -150,7 +150,7 @@ This notebook increases the DMA region from 2 MB to 128 MB by:
 
 ### To retrieve captured data:
 ```bash
-scp root@192.168.1.171:/tmp/cvbs_capture.npy .
+scp root@192.168.0.6:/tmp/cvbs_capture.npy .
 ```
 
 ### Hardware Setup Before Running:
@@ -162,7 +162,7 @@ scp root@192.168.1.171:/tmp/cvbs_capture.npy .
 
 **File:** `cvbs_playback.ipynb`
 
-**Access URL:** http://192.168.1.171:8888/jlab/lab/tree/cvbs_playback.ipynb
+**Access URL:** http://192.168.0.6:8888/jlab/lab/tree/cvbs_playback.ipynb
 
 ### What it does:
 1. Loads captured data from `/tmp/cvbs_capture.npy`
@@ -215,12 +215,12 @@ python stream_receiver.py --help-server
 ```
 
 **Red Pitaya setup notebook:** `setup_streaming.ipynb`
-- URL: http://192.168.1.171:8888/jlab/lab/tree/setup_streaming.ipynb
+- URL: http://192.168.0.6:8888/jlab/lab/tree/setup_streaming.ipynb
 
 ### Quick Start
 
 1. **On Red Pitaya:** Start streaming via web interface
-   - Open http://192.168.1.171/
+   - Open http://192.168.0.6/
    - Click "Streaming" application
    - Set: Mode=Network, Decimation=8, Channel=CH1, Protocol=TCP
    - Click "RUN"
@@ -239,46 +239,56 @@ python stream_receiver.py --help-server
 | SD Card | ~10 MB/s | Too slow for full rate |
 | Ethernet | 62.5 MB/s | ✓ Can handle our 31.25 MB/s |
 
-## Current Status (2026-01-16)
+## Current Status (2026-01-18)
 
 ### What Works
-- **Capture:** `cvbs_capture.ipynb` successfully captures CVBS data to `/tmp/cvbs_capture.npy`
-- **DMA:** Deep Memory Acquisition works after expanding DMA region (requires `setup_dma_memory.ipynb` + reboot)
-- **Data Quality:** Captured CVBS shows correct voltage levels (-0.28V sync tip to +0.65V peak white)
+- **Capture:** Multiple methods working:
+  - `cvbs_capture.ipynb` - File-based DMA capture to Red Pitaya filesystem
+  - Red Pitaya Streaming App + Windows client - Network streaming for longer captures
+  - `stream_capture.py` - Custom SSH-triggered streaming (alternative method)
+- **Playback:** `cvbs_dmg_playback.ipynb` - DMG playback working (up to ~8 seconds)
+- **DMA/DMG:** 128 MB region configured and working for both capture and playback
+- **Data Quality:** Captured CVBS shows correct voltage levels
 
-### In Progress
-- **Playback:** `cvbs_playback.ipynb` created but requires OS upgrade for full functionality
-- **OS Upgrade:** User is updating Red Pitaya OS to 2.07-48+ to enable Deep Memory Generation (DMG)
+### Playback Workflow
+1. Capture using streaming app (8-bit, 15.625 MS/s)
+2. Convert to float32: `python convert_to_playback.py capture.bin`
+3. Upload: `scp capture.f32 root@192.168.0.6:/home/jupyter/cvbs_project/cvbs_captures/`
+4. Play via notebook: `cvbs_dmg_playback.ipynb`
 
-### Known Issues
-1. **DMG not available on older OS** - Deep Memory Generation requires OS 2.07-48 or later
-2. **Standard AWG limited to 16384 samples** - Only ~1ms of video without DMG
-3. **Memory pressure** - Large numpy arrays can crash the Jupyter kernel on the memory-limited Red Pitaya
-4. **Kernel crashes** - Both capture and playback notebooks can crash if memory is exhausted
+### Known Limitations
+1. **DMG memory limit:** 128 MB = ~8 seconds max playback (float32 format)
+2. **Streaming playback:** DAC streaming limited to ~5 MS/s (too slow for CVBS)
+3. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
 
 ### Files on Red Pitaya Jupyter Server
 | File | Purpose | Status |
 |------|---------|--------|
 | `cvbs_capture.ipynb` | Capture CVBS to file | Working |
-| `cvbs_playback.ipynb` | Play back captured CVBS | Needs DMG (OS upgrade) |
+| `cvbs_dmg_playback.ipynb` | DMG playback | Working |
 | `setup_dma_memory.ipynb` | Expand DMA region | Working |
-| `setup_streaming.ipynb` | Network streaming setup | Not yet tested |
-| `check_version.ipynb` | Check OS version | Utility |
+| `/home/jupyter/cvbs_project/cvbs_captures/` | Directory for playback files | Active |
 
 ### Local Files
 | File | Purpose |
 |------|---------|
-| `stream_receiver.py` | Receive streaming data on PC |
+| `stream_capture.py` | SSH-triggered streaming capture |
+| `convert_to_playback.py` | Convert 8-bit .bin to float32 .f32 for playback |
+| `visualize_capture.py` | Visualize captured data |
+| `cvbs_dmg_playback.ipynb` | Local copy of playback notebook |
+| `README_CAPTURE.md` | Capture and playback documentation |
 | `.credentials` | Red Pitaya login (root/root) - gitignored |
 
 ## Next Steps
 
 1. ~~Create capture script using DMA with appropriate decimation~~
 2. ~~Create playback script~~
-3. **Upgrade Red Pitaya OS to 2.07-48+** (in progress)
-4. Test playback with DMG after OS upgrade
-5. Implement network streaming for longer captures
+3. ~~Upgrade Red Pitaya OS to 2.07-48+~~
+4. ~~Test playback with DMG~~
+5. ~~Implement network streaming for longer captures~~
 6. Post-processing to resample to exact 4fsc if needed
+7. Software timebase correction for VHS captures
+8. Extend playback beyond 8 seconds (if possible with different approach)
 
 ## References
 

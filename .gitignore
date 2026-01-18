@@ -21,3 +21,7 @@ __pycache__/
 *~
 .vscode/
 .idea/
+
+# Red Pitaya streaming client (downloaded binaries, keep README)
+rp_streaming/*
+!rp_streaming/README.md
