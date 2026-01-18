@@ -249,6 +249,8 @@ python stream_receiver.py --help-server
 - **Playback:** `cvbs_playback_optimized.py` - Optimized DMG playback (up to ~4.3 seconds)
 - **DMA/DMG:** 128 MB region configured and working for both capture and playback
 - **Data Quality:** Captured CVBS shows correct voltage levels
+- **Timing Analysis:** `analyze_bin.py` - Analyze VBI/HBI timing and detect drift
+- **Resampling:** `resample_capture.py` - Resample via 4×fsc for proper NTSC alignment
 
 ### Playback Workflow (Recommended)
 1. Capture using streaming app (8-bit, 15.625 MS/s) → .bin file
@@ -256,6 +258,21 @@ python stream_receiver.py --help-server
 3. Play: `ssh root@192.168.0.6 "python3 /home/jupyter/cvbs_project/cvbs_playback_optimized.py --skip-header /tmp/capture.bin"`
 
 No intermediate conversion needed - the optimized script reads int8 directly and converts in chunks.
+
+### Resampling Workflow (for DAC streaming or external players)
+1. Resample to desired rate: `python resample_capture.py capture.bin 4fsc`
+2. Stream via rpsa_client: `rpsa_client.exe -o -h 192.168.0.6 -f wav -d capture_4fsc.wav -r inf`
+
+Available presets: 4fsc (14.318 MHz), 2fsc (7.159 MHz), 1fsc (3.579 MHz), 0.5fsc (1.790 MHz)
+
+### NTSC Timing Analysis Findings
+
+**Key Discovery:** Red Pitaya captures at 15.625 MS/s, which gives **993.056 samples per NTSC line** - a fractional number causing timing drift:
+- 0.056 samples/line drift
+- 14.6 samples/field cumulative error
+- 876 samples/second timing slip
+
+**Solution:** Resample via 4×fsc (14.31818 MS/s) which gives exactly **910 samples/line**, eliminating fractional accumulation.
 
 ### DMG Technical Details
 - **API input:** float32 (-1.0 to 1.0)
@@ -266,7 +283,7 @@ No intermediate conversion needed - the optimized script reads int8 directly and
 
 ### Known Limitations
 1. **DMG memory limit:** 128 MB = ~4.3 seconds max playback (int16 storage internally)
-2. **Streaming playback:** DAC streaming limited to ~5 MS/s (too slow for CVBS)
+2. **Streaming playback:** DAC streaming limited to ~5 MS/s (too slow for 15.625 MS/s CVBS, but works for resampled files at lower rates)
 3. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
 
 ### Files on Red Pitaya Jupyter Server
@@ -281,11 +298,13 @@ No intermediate conversion needed - the optimized script reads int8 directly and
 ### Local Files
 | File | Purpose |
 |------|---------|
-| `stream_capture.py` | SSH-triggered streaming capture |
+| `analyze_bin.py` | Analyze CVBS timing (VBI/HBI detection, jitter, drift) |
+| `resample_capture.py` | Resample captures via 4×fsc intermediate for NTSC alignment |
 | `cvbs_playback_optimized.py` | Optimized playback script (reads int8 directly) |
 | `convert_to_playback.py` | Legacy: Convert 8-bit .bin to float32 .f32 |
 | `visualize_capture.py` | Visualize captured data |
-| `cvbs_dmg_playback.ipynb` | Local copy of playback notebook |
+| `cvbs_capture.ipynb` | Capture notebook (local copy) |
+| `cvbs_dmg_playback.ipynb` | Playback notebook (local copy) |
 | `README_CAPTURE.md` | Capture and playback documentation |
 | `.credentials` | Red Pitaya login (root/root) - gitignored |
 
@@ -298,9 +317,10 @@ No intermediate conversion needed - the optimized script reads int8 directly and
 5. ~~Implement network streaming for longer captures~~
 6. ~~Fix DMG memory reservation (was using float32 size, now uses int16)~~
 7. ~~Optimize playback to read int8 directly (no intermediate float32 file)~~
-8. Post-processing to resample to exact 4fsc if needed
-9. Software timebase correction for VHS captures
-10. Investigate continuous DAC streaming for longer playback (currently limited to ~5 MS/s)
+8. ~~Post-processing to resample to exact 4fsc~~ (resample_capture.py with 4fsc intermediate)
+9. ~~Analyze CVBS timing to identify drift issues~~ (analyze_bin.py)
+10. Software timebase correction for VHS captures
+11. Investigate continuous DAC streaming for longer playback (works at lower sample rates)
 
 ## References
 
