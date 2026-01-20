@@ -161,6 +161,71 @@ def analyze_signal(data, name="Signal"):
     return {'sync': p1, 'blank': p10, 'mid': p50, 'white': p99}
 
 
+def convert_simple(input_path, output_path, header_size, target_rate):
+    """
+    Simple int8 to int16 WAV conversion without resampling.
+    Memory-efficient chunked processing for large files.
+    """
+    # Scale factor: int8 (±127) -> int16 (±32767)
+    scale_factor = 32767.0 / 127.0
+
+    # Get file size to calculate total samples
+    file_size = os.path.getsize(input_path) - header_size
+    total_samples = file_size
+
+    # Align to 64 samples (128 bytes) for Red Pitaya
+    aligned_samples = (total_samples // 64) * 64
+
+    print(f"\nSimple conversion mode (no resampling needed)")
+    print(f"  Processing {total_samples:,} samples in chunks...")
+
+    # Process in chunks to limit memory usage (~64 MB chunks)
+    chunk_size = 64 * 1024 * 1024  # 64 MB of int8 = 64M samples
+
+    with open(input_path, 'rb') as fin:
+        fin.seek(header_size)
+
+        with wave.open(output_path, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)  # 16-bit
+            wav.setframerate(int(round(target_rate)))
+
+            samples_written = 0
+            while samples_written < aligned_samples:
+                # Calculate chunk size for this iteration
+                remaining = aligned_samples - samples_written
+                this_chunk = min(chunk_size, remaining)
+
+                # Read chunk as int8
+                raw_data = fin.read(this_chunk)
+                if not raw_data:
+                    break
+
+                chunk_int8 = np.frombuffer(raw_data, dtype=np.int8)
+
+                # Convert directly to int16 with scaling
+                # Use int32 intermediate to avoid overflow during multiplication
+                chunk_int16 = (chunk_int8.astype(np.int32) * 258).astype(np.int16)
+
+                wav.writeframes(chunk_int16.tobytes())
+                samples_written += len(chunk_int8)
+
+                # Progress indicator
+                pct = samples_written * 100 // aligned_samples
+                print(f"\r  Progress: {pct}% ({samples_written:,} / {aligned_samples:,})", end='', flush=True)
+
+    print()  # Newline after progress
+
+    duration = aligned_samples / target_rate
+    print(f"\nOutput: {aligned_samples:,} samples ({duration:.3f} seconds)")
+
+    file_size = os.path.getsize(output_path)
+    print(f"Saved: {output_path}")
+    print(f"Size: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
+
+    return output_path
+
+
 def resample_capture(input_path, target_rate, output_path=None,
                      original_rate=RP_RATE, header_size=None,
                      skip_header=True, gain_db=0.0, center_signal=False):
@@ -190,7 +255,20 @@ def resample_capture(input_path, target_rate, output_path=None,
     elif header_size is None:
         header_size = 0
 
-    # Read input file
+    # Check if this is a simple 1:1 conversion (no resampling, no processing)
+    ratio = target_rate / original_rate
+    is_simple = (abs(ratio - 1.0) < 1e-9 and gain_db == 0.0 and not center_signal)
+
+    if is_simple:
+        # Fast path: simple int8 to int16 conversion, chunked for memory efficiency
+        print(f"Reading {input_path}...")
+        file_size = os.path.getsize(input_path) - header_size
+        print(f"File size: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
+        print(f"Original rate: {original_rate/1e6:.6f} MS/s")
+        print(f"Target rate: {target_rate/1e6:.6f} MS/s (same - no resampling)")
+        return convert_simple(input_path, output_path, header_size, target_rate)
+
+    # Full processing path (resampling, gain, or centering needed)
     print(f"Reading {input_path}...")
     with open(input_path, 'rb') as f:
         f.seek(header_size)
@@ -212,6 +290,7 @@ def resample_capture(input_path, target_rate, output_path=None,
 
     # Convert to float for processing
     data_float = data.astype(np.float64)
+    del data  # Free int8 array
 
     # Apply centering if requested (before gain for maximum headroom)
     if center_signal:
@@ -243,12 +322,14 @@ def resample_capture(input_path, target_rate, output_path=None,
 
     # Resample
     data_resampled = resample_direct(data_float, original_rate, target_rate)
+    del data_float  # Free float64 array
 
     # Convert to int16 for WAV output
     # Scale: int8 range (±127) -> int16 range (±32767)
     # Factor: 32767/127 ≈ 258
     scale_factor = 32767.0 / 127.0
     data_16 = data_resampled * scale_factor
+    del data_resampled  # Free intermediate
 
     # Clip to int16 range and convert
     clipped = np.sum(np.abs(data_16) > 32767)
