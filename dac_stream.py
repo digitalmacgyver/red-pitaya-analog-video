@@ -30,6 +30,10 @@ RATE_2FSC = 7159090    # 2× color subcarrier (NTSC)
 RATE_4FSC = 14318180   # 4× color subcarrier
 RATE_15625 = 15625000  # Red Pitaya decimation 8
 
+# Buffer sizes - CRITICAL for avoiding memory errors
+DAC_SIZE = 134_217_728  # 128 MB
+BLOCK_SIZE = 8_388_608  # 8 MB
+
 
 def run_cmd(args, check=True, capture=True):
     """Run a command and return output."""
@@ -87,26 +91,78 @@ def check_wav_file(filepath):
     }
 
 
+def start_streaming_server_ssh(host):
+    """Start the streaming server on Red Pitaya via SSH."""
+    print(f"\nStarting streaming server via SSH...")
+
+    ssh_cmd = [
+        "ssh", f"root@{host}",
+        "cd /opt/redpitaya/bin && "
+        "LD_LIBRARY_PATH=/opt/redpitaya/lib /opt/redpitaya/sbin/overlay.sh stream_app && "
+        "sleep 1 && "
+        "LD_LIBRARY_PATH=/opt/redpitaya/lib ./streaming-server -v &"
+    ]
+
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=10)
+        time.sleep(2)
+
+        # Verify server is running
+        check_cmd = ["ssh", f"root@{host}", "pgrep -f streaming-server"]
+        check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+
+        if check_result.returncode == 0:
+            print(f"  Streaming server started successfully")
+            return True
+        else:
+            print(f"  Warning: Could not verify server started")
+            return False
+    except Exception as e:
+        print(f"  Error starting server via SSH: {e}")
+        return False
+
+
+def check_streaming_server(host):
+    """Check if streaming server is responding."""
+    args = [RPSA_CLIENT, "-c", "-h", host, "-g", "V1"]
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+        return result.returncode == 0
+    except:
+        return False
+
+
+def configure_dac_memory(host):
+    """Configure DAC memory size to prevent memory errors."""
+    print(f"\nConfiguring DAC memory (dac_size={DAC_SIZE:,} bytes)...")
+    args = [RPSA_CLIENT, "-c", "-h", host, "-i", f"dac_size={DAC_SIZE}", "-w"]
+    result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+    return result.returncode == 0
+
+
 def detect_board(host=None):
     """Detect Red Pitaya board on network."""
     print("\nDetecting Red Pitaya...")
 
     if host:
-        # Try specific host
-        args = [RPSA_CLIENT, "-c", "-h", host, "-g", "V1"]
-        result = run_cmd(args, check=False)
-        if result.returncode == 0:
+        # Try specific host - check if server is responding
+        if check_streaming_server(host):
             print(f"  Found board at {host}")
             return host
         else:
+            # Try to start server via SSH
+            print(f"  Server not responding, attempting SSH start...")
+            if start_streaming_server_ssh(host):
+                time.sleep(1)
+                if check_streaming_server(host):
+                    print(f"  Found board at {host}")
+                    return host
             print(f"  Board not responding at {host}")
             return None
     else:
         # Broadcast detect
         args = [RPSA_CLIENT, "-d", "-t", "3"]
         result = run_cmd(args, check=False)
-        # Parse output for IP addresses
-        # For now, fall back to default
         print(f"  Using default host: {DEFAULT_HOST}")
         return DEFAULT_HOST
 
@@ -230,7 +286,10 @@ Examples:
         print("Error: Could not connect to Red Pitaya")
         sys.exit(1)
 
-    # Configure DAC
+    # Configure DAC memory (CRITICAL - prevents memory errors)
+    configure_dac_memory(host)
+
+    # Configure DAC mode and rate
     set_dac_mode_net(host)
     set_dac_rate(host, dac_rate)
 
