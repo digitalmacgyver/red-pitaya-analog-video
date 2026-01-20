@@ -35,7 +35,7 @@ RP_BASE_CLOCK = 125_000_000  # 125 MHz
 # Must be increased to match block_size requirements
 BLOCK_SIZE = 8_388_608      # 8 MB (maximum supported)
 ADC_SIZE = 134_217_728      # 128 MB (prevents DMA buffer overflow)
-DAC_SIZE = 134_217_728      # 128 MB
+SMALL_SIZE = 787_968        # 768 KB (default, used for inactive buffer)
 
 
 def run_cmd(args, check=True, capture=True, timeout=None):
@@ -372,6 +372,7 @@ Examples:
     print("\nSetting memory configuration (prevents DMA glitches)...")
     set_config(args.host, block_size=BLOCK_SIZE)
     set_config(args.host, adc_size=ADC_SIZE)
+    set_config(args.host, dac_size=SMALL_SIZE)  # Reduce unused DAC buffer
 
     # Set streaming mode to network
     set_config(args.host, adc_pass_mode="NET")

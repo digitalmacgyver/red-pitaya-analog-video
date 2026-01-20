@@ -33,6 +33,7 @@ RATE_15625 = 15625000  # Red Pitaya decimation 8
 # Buffer sizes - CRITICAL for avoiding memory errors
 DAC_SIZE = 134_217_728  # 128 MB
 BLOCK_SIZE = 8_388_608  # 8 MB
+SMALL_SIZE = 787_968    # 768 KB (default, used for inactive buffer)
 
 
 def run_cmd(args, check=True, capture=True):
@@ -132,12 +133,23 @@ def check_streaming_server(host):
         return False
 
 
-def configure_dac_memory(host):
-    """Configure DAC memory size to prevent memory errors."""
-    print(f"\nConfiguring DAC memory (dac_size={DAC_SIZE:,} bytes)...")
+def configure_memory(host):
+    """Configure memory sizes for DAC streaming.
+
+    Sets DAC buffer to 128 MB (needed for streaming) and reduces
+    ADC buffer to 768 KB (unused during playback) to save RAM.
+    """
+    print(f"\nConfiguring memory (dac_size={DAC_SIZE:,}, adc_size={SMALL_SIZE:,})...")
+
+    # Set DAC buffer large for streaming
     args = [RPSA_CLIENT, "-c", "-h", host, "-i", f"dac_size={DAC_SIZE}", "-w"]
-    result = subprocess.run(args, capture_output=True, text=True, timeout=5)
-    return result.returncode == 0
+    result1 = subprocess.run(args, capture_output=True, text=True, timeout=5)
+
+    # Reduce ADC buffer (not used during playback)
+    args = [RPSA_CLIENT, "-c", "-h", host, "-i", f"adc_size={SMALL_SIZE}", "-w"]
+    result2 = subprocess.run(args, capture_output=True, text=True, timeout=5)
+
+    return result1.returncode == 0 and result2.returncode == 0
 
 
 def detect_board(host=None):
@@ -286,8 +298,8 @@ Examples:
         print("Error: Could not connect to Red Pitaya")
         sys.exit(1)
 
-    # Configure DAC memory (CRITICAL - prevents memory errors)
-    configure_dac_memory(host)
+    # Configure memory (CRITICAL - prevents memory errors)
+    configure_memory(host)
 
     # Configure DAC mode and rate
     set_dac_mode_net(host)
