@@ -48,15 +48,38 @@ ssh-copy-id root@192.168.0.6
 
 ### Hardware Setup
 
-**Capture:**
-1. Set IN1 jumper to **LV** (±1V range)
-2. Connect CVBS source to **IN1** (RF input 1)
-3. Optional: Add 75Ω termination for impedance matching
+**Capture (Input Impedance Matching):**
 
-**Playback:**
-1. Connect **RF OUT 1** to your video device
-2. For proper impedance matching (50Ω to 75Ω), use a minimum loss pad
-3. Apply 5.7 dB gain compensation if using the pad: `--gain 5.7`
+The Red Pitaya has a **high-impedance input** (1MΩ), not the 75Ω that CVBS expects. To properly terminate the video signal:
+
+1. Set IN1 jumper to **LV** (±1V range)
+2. Use a **BNC T-connector** on the CVBS source
+3. Connect one leg of the T to **IN1** (RF input 1)
+4. Connect a **75Ω terminator** to the other leg of the T
+
+```
+[CVBS Source]──[BNC T]──[75Ω Terminator]
+                  │
+            [Red Pitaya IN1]
+```
+
+This ensures the source sees the correct 75Ω load while the high-Z Red Pitaya input passively monitors the signal.
+
+**Playback (Output Impedance Matching):**
+
+The Red Pitaya DAC output is 50Ω, but CVBS equipment expects 75Ω. For proper matching:
+
+1. Connect **RF OUT 1** through a **minimum loss pad** (L-pad)
+2. Use a passive BNC barrel adapter: 50Ω to 75Ω impedance transformer
+3. This attenuates the signal by **5.7 dB**
+4. Compensate in software: `--gain 5.7` when converting
+
+```
+[Red Pitaya OUT1]──[50Ω→75Ω L-pad]──[Video Device]
+        50Ω              -5.7dB            75Ω
+```
+
+The L-pad is a passive resistor network that provides bidirectional impedance matching with minimal signal reflection.
 
 ---
 
