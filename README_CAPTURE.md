@@ -8,21 +8,25 @@ Tools for recording and replaying CVBS (composite video) signals using a Red Pit
 
 ```bash
 # Capture 30 seconds at 15.625 MS/s (no UI required - uses SSH)
-python adc_capture.py -d 30 -o /wintmp/analog_video/rpsa_client/output
+python adc_capture.py -d 30 -o /path/to/output
 ```
 
-### 2. Prepare for Playback (No Resampling)
+### 2. Convert for Playback (strips block headers)
 
 ```bash
-# Convert to WAV at original rate for playback
-python resample_capture.py /path/to/capture.bin 15.625M -o playback.wav
+# Convert .bin to .wav using Red Pitaya's convert_tool
+# NOTE: Format flag must be UPPERCASE (-f WAV not -f wav)
+rp_streaming/cmd/convert_tool /path/to/capture.bin -f WAV
+# Creates capture.wav in the same directory
 ```
+
+The `.bin` file format includes 112-byte block headers every 8MB (see "BIN File Format" below). The convert_tool properly strips these headers during conversion.
 
 ### 3. Play Back via DAC Streaming
 
 ```bash
 # Stream to Red Pitaya DAC (loops infinitely)
-python dac_stream.py playback.wav --repeat inf
+python dac_stream.py /path/to/capture.wav --repeat inf
 ```
 
 **Note:** Playback at 15.625 MS/s works reliably despite Red Pitaya documentation stating a 10 MS/s limit for DAC streaming.
@@ -60,8 +64,10 @@ ssh-copy-id root@192.168.0.6
 | Tool | Purpose |
 |------|---------|
 | `adc_capture.py` | **Recommended capture** - Command-line streaming capture via SSH |
+| `rp_streaming/cmd/convert_tool` | **Recommended conversion** - Official tool to convert .bin to .wav (strips headers) |
 | `dac_stream.py` | **Recommended playback** - DAC streaming for unlimited duration |
-| `resample_capture.py` | Convert/resample captures for playback |
+| `resample_capture.py` | Convert/resample captures, apply gain compensation |
+| `strip_headers.py` | Alternative header stripping (if convert_tool unavailable) |
 | `analyze_bin.py` | Analyze CVBS timing and quality |
 | `visualize_capture.py` | Visualize captured waveforms |
 
@@ -129,6 +135,80 @@ python adc_capture.py --config
 | 8 | 15.625 MS/s | ~15 MB/s | Default, good for CVBS |
 | 16 | 7.813 MS/s | ~7.5 MB/s | Lower bandwidth |
 | 32 | 3.906 MS/s | ~3.75 MB/s | Minimum for CVBS |
+
+---
+
+## convert_tool (Recommended Conversion)
+
+Red Pitaya's official tool for converting .bin captures to .wav format. Located at `rp_streaming/cmd/convert_tool`.
+
+### Synopsis
+
+```
+convert_tool <capture.bin> [-f WAV|CSV|TDMS] [-i] [-s start] [-e end]
+```
+
+**IMPORTANT:** The format flag must be **UPPERCASE** (`-f WAV` not `-f wav`).
+
+### Key Features
+
+- **Properly strips block headers** from .bin files
+- **Preserves original sample rate** (e.g., 15.625 MS/s)
+- **Official tool** - robust to future format changes
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-i` | Show file info (segments, samples, channels) |
+| `-f FORMAT` | Output format: WAV, CSV, TDMS (must be uppercase!) |
+| `-s N` | Start from segment N |
+| `-e N` | End at segment N |
+
+### Examples
+
+```bash
+# Show file info
+convert_tool capture.bin -i
+
+# Convert to WAV (creates capture.wav)
+convert_tool capture.bin -f WAV
+
+# Convert specific segment range
+convert_tool capture.bin -f WAV -s 0 -e 10
+```
+
+---
+
+## strip_headers.py (Alternative - Fallback Tool)
+
+Python fallback for stripping block headers if convert_tool is unavailable.
+
+### Synopsis
+
+```
+strip_headers.py <capture.bin> [-o output.bin] [--verify-only]
+```
+
+### When to Use
+
+Use this if:
+- convert_tool is not available
+- You need to process .bin files without converting to .wav
+- You want to verify a file has headers
+
+### Examples
+
+```bash
+# Strip headers (creates capture_clean.bin)
+python strip_headers.py capture.bin
+
+# Specify output filename
+python strip_headers.py capture.bin -o clean.bin
+
+# Verify a file has no headers
+python strip_headers.py capture.bin --verify-only
+```
 
 ---
 
@@ -276,17 +356,50 @@ python analyze_bin.py capture.bin
 
 ## Data Formats
 
-### Capture Format (.bin)
+### BIN File Format (Capture)
 
-- **From adc_capture.py**: Signed 8-bit integers (int8)
-- **Sample rate**: 15.625 MS/s (125 MS/s / 8)
-- **Voltage conversion**: `voltage = raw_value / 127.0` (±1V range)
+The `.bin` format from rpsa_client contains block headers that must be stripped before playback.
 
-### Playback Format (.wav)
+**Structure per 8MB segment:**
+```
+[112-byte BinHeader] [8,388,608 bytes sample data] [12 bytes 0xFF padding]
+```
 
-- **Format**: 16-bit mono WAV
-- **Sample rate**: As specified (e.g., 15.625 MS/s, 7.159 MS/s)
-- **Alignment**: Data aligned to 128 bytes for Red Pitaya DAC
+**BinHeader structure (112 bytes):**
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 4 | version | Always 1 |
+| 4 | 4 | block_size | 8,388,608 (8MB) |
+| 6 | 1 | marker | 0x80 |
+| 20-23 | 4 | block_size | Repeated |
+| 22 | 1 | marker | 0x80 |
+| 36-37 | 2 | spike | 0x29 0x7F (causes glitches!) |
+| 72-74 | 3 | identifier | 0x28 0x6B 0xEE |
+| 106 | 1 | marker | 0x80 |
+| 108-109 | 2 | spike | 0x29 0x7F |
+
+**Sample data:**
+- Signed 8-bit integers (int8)
+- Sample rate: 15.625 MS/s (125 MS/s / 8)
+- Voltage conversion: `voltage = raw_value / 127.0` (±1V range)
+
+**Why headers cause glitches:**
+- The `0x29 0x7F` bytes (41, 127 decimal) are max-value spikes
+- Each header adds ~7μs timing shift
+- Appears as visible white flashes every ~0.5 seconds
+
+Use `convert_tool -f WAV` or `strip_headers.py` to remove headers.
+
+### WAV Format (Playback)
+
+**From convert_tool:**
+- 8-bit mono WAV
+- Original sample rate preserved
+
+**From resample_capture.py:**
+- 16-bit mono WAV
+- Sample rate as specified
+- 128-byte aligned for Red Pitaya DAC
 
 ---
 
@@ -294,7 +407,12 @@ python analyze_bin.py capture.bin
 
 ### Capture Issues
 
-**Glitches every ~65K samples:**
+**Glitches every ~0.5 seconds (block header glitches):**
+- **Cause:** BIN file contains 112-byte headers every 8MB
+- **Solution:** Use `convert_tool -f WAV` to convert and strip headers
+- **Verify:** `convert_tool capture.bin -i` shows segment count
+
+**Glitches every ~65K samples (buffer overflow):**
 - Caused by small default `adc_size` (768 KB)
 - `adc_capture.py` fixes this automatically by setting `adc_size=128MB`
 - If using web UI, manually set: `adc_size=134217728`
