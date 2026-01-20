@@ -103,6 +103,53 @@ def has_bin_headers(filepath):
         return False
 
 
+def convert_wav_8bit_to_16bit(input_wav, output_wav):
+    """
+    Convert 8-bit WAV to 16-bit WAV with proper voltage scaling.
+
+    The DAC expects values scaled so the full range represents ±1V.
+    8-bit ADC values (±127) must be scaled to 16-bit range (±32767).
+    Scale factor: 32767/127 ≈ 258
+    """
+    print(f"Converting 8-bit WAV to 16-bit scaled...")
+
+    with wave.open(input_wav, 'rb') as wav_in:
+        n_channels = wav_in.getnchannels()
+        sample_width = wav_in.getsampwidth()
+        framerate = wav_in.getframerate()
+        n_frames = wav_in.getnframes()
+
+        if sample_width != 1:
+            print(f"  Input already {sample_width*8}-bit, no conversion needed")
+            return input_wav
+
+        print(f"  Input: {n_frames:,} samples @ {framerate} Hz, {sample_width*8}-bit")
+
+        # Read all samples
+        raw_data = wav_in.readframes(n_frames)
+
+    # convert_tool outputs signed int8 values directly (not standard unsigned WAV)
+    # Just scale to 16-bit range: multiply by 258 (32767/127)
+    samples_8bit = np.frombuffer(raw_data, dtype=np.int8).astype(np.int16)
+    samples_16bit = (samples_8bit * 258).astype(np.int16)
+
+    # Align to 64 samples (128 bytes) for Red Pitaya
+    aligned_len = (len(samples_16bit) // 64) * 64
+    samples_16bit = samples_16bit[:aligned_len]
+
+    # Write 16-bit WAV
+    with wave.open(output_wav, 'wb') as wav_out:
+        wav_out.setnchannels(n_channels)
+        wav_out.setsampwidth(2)  # 16-bit
+        wav_out.setframerate(framerate)
+        wav_out.writeframes(samples_16bit.tobytes())
+
+    print(f"  Output: {len(samples_16bit):,} samples, 16-bit")
+    print(f"  Saved: {output_wav}")
+
+    return output_wav
+
+
 def strip_headers_with_convert_tool(input_path, output_dir=None):
     """
     Use convert_tool to strip block headers and convert to WAV.
@@ -499,15 +546,24 @@ Examples:
                                     args.center)
 
                 if not needs_processing:
-                    # No further processing needed - convert_tool output is final
-                    output_path = args.output if args.output else clean_wav
+                    # No resampling/gain/centering needed, but still need to convert
+                    # from 8-bit (convert_tool output) to 16-bit (DAC requirement)
+                    base_name = os.path.splitext(os.path.basename(input_path))[0]
+                    output_dir = os.path.dirname(args.output) if args.output else os.path.dirname(input_path) or '.'
 
-                    if args.output and args.output != clean_wav:
-                        # Rename to requested output name
-                        import shutil
-                        shutil.move(clean_wav, args.output)
+                    if args.output:
                         output_path = args.output
-                        print(f"Renamed to: {output_path}")
+                    else:
+                        # Generate output name with rate suffix
+                        output_path = os.path.join(output_dir, f"{base_name}_15625k.wav")
+
+                    # Convert 8-bit WAV to 16-bit scaled WAV
+                    output_path = convert_wav_8bit_to_16bit(clean_wav, output_path)
+
+                    # Remove intermediate 8-bit WAV if different from output
+                    if clean_wav != output_path and os.path.exists(clean_wav):
+                        os.remove(clean_wav)
+                        print(f"  Removed intermediate: {clean_wav}")
 
                     print(f"\nTo stream to Red Pitaya:")
                     print(f"  python dac_stream.py \"{output_path}\"")
