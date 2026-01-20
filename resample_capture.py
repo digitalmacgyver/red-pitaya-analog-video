@@ -5,13 +5,15 @@ Resample a CVBS capture file for Red Pitaya DAC streaming.
 Converts Red Pitaya streaming captures (.bin, int8) to WAV format at a
 specified sample rate using high-quality sinc interpolation (polyphase FIR).
 
+Automatically strips block headers from .bin files using convert_tool.
+
 Usage:
     python resample_capture.py <input.bin> <target_rate> [options]
 
 Arguments:
     input.bin       Input capture file (int8 samples from rpsa_client at 15.625 MS/s)
     target_rate     Target sample rate or preset:
-                    - Presets: 4fsc, 2fsc, 1fsc, 0.5fsc
+                    - Presets: 4fsc, 2fsc, 1fsc, 0.5fsc, 15.625M
                     - Custom: 4M, 4000000, 5.2e6, etc.
 
 Options:
@@ -19,16 +21,19 @@ Options:
     --original-rate RATE    Source sample rate (default: 15.625M)
     --gain DB               Apply gain in dB (e.g., 5.7 to compensate for pad loss)
     --center                Center signal at 0V before gain (maximizes headroom)
-    --header N              Manual header size in bytes
-    --no-skip-header        Don't auto-detect/skip file header
+    --no-convert-tool       Don't use convert_tool (use strip_headers.py fallback)
 
 Presets (based on NTSC color subcarrier fsc = 3.579545 MHz):
-    4fsc    14.31818 MS/s   910 samples/line (standard CVBS digitization)
-    2fsc     7.15909 MS/s   455 samples/line (recommended for streaming)
-    1fsc     3.57954 MS/s   227.5 samples/line
-    0.5fsc   1.78977 MS/s   113.75 samples/line
+    4fsc     14.31818 MS/s   910 samples/line (standard CVBS digitization)
+    2fsc      7.15909 MS/s   455 samples/line (recommended for streaming)
+    1fsc      3.57954 MS/s   227.5 samples/line
+    0.5fsc    1.78977 MS/s   113.75 samples/line
+    15.625M  15.625 MS/s     Original capture rate (no resampling)
 
 Examples:
+    # Convert to WAV at original rate (no resampling)
+    python resample_capture.py capture.bin 15.625M
+
     # Resample to 2fsc for DAC streaming
     python resample_capture.py capture.bin 2fsc
 
@@ -51,10 +56,19 @@ Output:
 import sys
 import os
 import argparse
+import subprocess
+import tempfile
 import numpy as np
 import wave
 from scipy import signal
 from fractions import Fraction
+
+# Path to convert_tool (relative to this script)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONVERT_TOOL = os.path.join(SCRIPT_DIR, "rp_streaming", "cmd", "convert_tool")
+
+# BIN file header signature (first 8 bytes)
+BIN_HEADER_SIGNATURE = bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00])
 
 # NTSC timing constants
 NTSC_FSC = 3579545.0  # Color subcarrier frequency (exactly 315/88 MHz)
@@ -75,7 +89,69 @@ PRESETS = {
     '1fsc': FSC_1,
     '0.5fsc': FSC_HALF,
     'half': FSC_HALF,
+    '15.625m': RP_RATE,  # Original capture rate (no resampling)
 }
+
+
+def has_bin_headers(filepath):
+    """Check if a .bin file has block headers that need stripping."""
+    try:
+        with open(filepath, 'rb') as f:
+            header = f.read(len(BIN_HEADER_SIGNATURE))
+            return header == BIN_HEADER_SIGNATURE
+    except:
+        return False
+
+
+def strip_headers_with_convert_tool(input_path, output_dir=None):
+    """
+    Use convert_tool to strip block headers and convert to WAV.
+
+    Returns path to the clean WAV file, or None on failure.
+    """
+    if not os.path.exists(CONVERT_TOOL):
+        print(f"Warning: convert_tool not found at {CONVERT_TOOL}")
+        return None
+
+    # Determine output path
+    if output_dir is None:
+        output_dir = os.path.dirname(input_path) or '.'
+
+    base_name = os.path.splitext(os.path.basename(input_path))[0]
+    output_wav = os.path.join(output_dir, f"{base_name}.wav")
+
+    print(f"Stripping block headers using convert_tool...")
+    print(f"  Input: {input_path}")
+    print(f"  Output: {output_wav}")
+
+    # Run convert_tool (note: -f WAV must be uppercase!)
+    try:
+        result = subprocess.run(
+            [CONVERT_TOOL, input_path, "-f", "WAV"],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout for large files
+        )
+
+        if result.returncode != 0:
+            print(f"  convert_tool failed: {result.stderr}")
+            return None
+
+        # Check output was created
+        if os.path.exists(output_wav):
+            size = os.path.getsize(output_wav)
+            print(f"  Created: {output_wav} ({size:,} bytes)")
+            return output_wav
+        else:
+            print(f"  Error: Output file not created")
+            return None
+
+    except subprocess.TimeoutExpired:
+        print(f"  Error: convert_tool timed out")
+        return None
+    except Exception as e:
+        print(f"  Error running convert_tool: {e}")
+        return None
 
 
 def parse_sample_rate(rate_str):
@@ -368,21 +444,23 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Presets:
+    15.625M  15.625 MS/s     Original rate (no resampling)
     4fsc     14.31818 MS/s   910 samples/line (standard)
     2fsc      7.15909 MS/s   455 samples/line (streaming)
     1fsc      3.57954 MS/s   227.5 samples/line
     0.5fsc    1.78977 MS/s   113.75 samples/line
 
 Examples:
-    %(prog)s capture.bin 2fsc                    # For streaming
+    %(prog)s capture.bin 15.625M                 # Convert only (no resampling)
+    %(prog)s capture.bin 2fsc                    # Resample for streaming
     %(prog)s capture.bin 2fsc --gain 5.7         # Compensate for pad loss
     %(prog)s capture.bin 2fsc --gain 5.7 --center  # With DC centering
         """
     )
 
-    parser.add_argument('input', help='Input capture file (.bin)')
+    parser.add_argument('input', help='Input capture file (.bin or .wav)')
     parser.add_argument('target_rate',
-                        help='Target rate: 4fsc, 2fsc, 1fsc, 0.5fsc, or custom')
+                        help='Target rate: 15.625M, 4fsc, 2fsc, 1fsc, 0.5fsc, or custom')
     parser.add_argument('-o', '--output', help='Output WAV file')
     parser.add_argument('--original-rate', default='15.625M',
                         help='Original sample rate (default: 15.625M)')
@@ -390,10 +468,8 @@ Examples:
                         help='Gain in dB (e.g., 5.7 for pad compensation)')
     parser.add_argument('--center', action='store_true',
                         help='Center signal at 0V before gain (maximizes headroom)')
-    parser.add_argument('--no-skip-header', action='store_true',
-                        help='Do not skip file header')
-    parser.add_argument('--header', type=int, default=None,
-                        help='Manual header size in bytes')
+    parser.add_argument('--no-convert-tool', action='store_true',
+                        help='Do not use convert_tool for header stripping')
 
     args = parser.parse_args()
 
@@ -404,13 +480,55 @@ Examples:
     target_rate = parse_sample_rate(args.target_rate)
     original_rate = parse_sample_rate(args.original_rate)
 
+    input_path = args.input
+    temp_wav = None
+
+    # Check if input is a .bin file with block headers
+    if input_path.lower().endswith('.bin') and has_bin_headers(input_path):
+        print(f"Detected .bin file with block headers")
+
+        if not args.no_convert_tool:
+            # Use convert_tool to strip headers and get clean WAV
+            clean_wav = strip_headers_with_convert_tool(input_path)
+
+            if clean_wav:
+                # Check if we need further processing
+                ratio = target_rate / original_rate
+                needs_processing = (abs(ratio - 1.0) > 1e-9 or
+                                    args.gain != 0.0 or
+                                    args.center)
+
+                if not needs_processing:
+                    # No further processing needed - convert_tool output is final
+                    output_path = args.output if args.output else clean_wav
+
+                    if args.output and args.output != clean_wav:
+                        # Rename to requested output name
+                        import shutil
+                        shutil.move(clean_wav, args.output)
+                        output_path = args.output
+                        print(f"Renamed to: {output_path}")
+
+                    print(f"\nTo stream to Red Pitaya:")
+                    print(f"  python dac_stream.py \"{output_path}\"")
+                    return
+
+                # Further processing needed - use clean WAV as input
+                input_path = clean_wav
+                temp_wav = clean_wav  # Track for potential cleanup
+            else:
+                print("Warning: convert_tool failed, falling back to header detection")
+        else:
+            print("Skipping convert_tool (--no-convert-tool specified)")
+
+    # Process the file (either original or cleaned WAV)
     output_path = resample_capture(
-        args.input,
+        input_path,
         target_rate,
         output_path=args.output,
         original_rate=original_rate,
-        header_size=args.header,
-        skip_header=not args.no_skip_header,
+        header_size=0 if temp_wav else None,  # No header if already cleaned
+        skip_header=temp_wav is None,  # Only detect header if not cleaned
         gain_db=args.gain,
         center_signal=args.center
     )
