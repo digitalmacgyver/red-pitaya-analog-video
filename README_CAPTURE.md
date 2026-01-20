@@ -65,9 +65,9 @@ ssh-copy-id root@192.168.0.6
 | Tool | Purpose |
 |------|---------|
 | `adc_capture.py` | **Recommended capture** - Command-line streaming capture via SSH |
-| `resample_capture.py` | **Recommended conversion** - Convert .bin to .wav (auto-strips headers), resample, apply gain |
+| `resample_capture.py` | **Recommended conversion** - Convert .bin to 16-bit .wav, strip headers, resample, apply gain |
 | `dac_stream.py` | **Recommended playback** - DAC streaming for unlimited duration |
-| `rp_streaming/cmd/convert_tool` | Official Red Pitaya tool (called internally by resample_capture.py) |
+| `rp_streaming/cmd/convert_tool` | Internal tool for header stripping (8-bit output, not for direct playback) |
 | `strip_headers.py` | Fallback header stripping (if convert_tool unavailable) |
 | `scan_glitches.py` | Detect glitch spikes in capture files |
 | `analyze_bin.py` | Analyze CVBS timing and quality |
@@ -140,9 +140,11 @@ python adc_capture.py --config
 
 ---
 
-## convert_tool (Recommended Conversion)
+## convert_tool (Internal - Used by resample_capture.py)
 
-Red Pitaya's official tool for converting .bin captures to .wav format. Located at `rp_streaming/cmd/convert_tool`.
+Red Pitaya's official tool for stripping block headers from .bin captures. Located at `rp_streaming/cmd/convert_tool`.
+
+**Note:** convert_tool outputs 8-bit WAV which cannot be played directly via DAC streaming. Use `resample_capture.py` instead, which calls convert_tool internally and converts to proper 16-bit format.
 
 ### Synopsis
 
@@ -157,6 +159,7 @@ convert_tool <capture.bin> [-f WAV|CSV|TDMS] [-i] [-s start] [-e end]
 - **Properly strips block headers** from .bin files
 - **Preserves original sample rate** (e.g., 15.625 MS/s)
 - **Official tool** - robust to future format changes
+- **8-bit output** - requires conversion to 16-bit for DAC playback
 
 ### Options
 
@@ -394,14 +397,21 @@ Use `convert_tool -f WAV` or `strip_headers.py` to remove headers.
 
 ### WAV Format (Playback)
 
-**From convert_tool:**
-- 8-bit mono WAV
-- Original sample rate preserved
+**DAC streaming requires:**
+- **16-bit signed PCM** (not 8-bit!)
+- Full sample range (±32767) represents ±1V output
+- 128-byte alignment for DMA transfers
 
-**From resample_capture.py:**
-- 16-bit mono WAV
-- Sample rate as specified
+**From convert_tool (8-bit, not directly playable):**
+- 8-bit mono WAV with signed int8 values (non-standard WAV format)
+- Original sample rate preserved
+- **Cannot be used directly for DAC playback** - must convert to 16-bit first
+
+**From resample_capture.py (16-bit, ready for playback):**
+- 16-bit mono WAV, properly scaled for DAC
+- Scaling: int8 (±127) → int16 (±32767), factor of 258
 - 128-byte aligned for Red Pitaya DAC
+- Automatically converts convert_tool's 8-bit output to 16-bit
 
 ---
 
@@ -429,10 +439,15 @@ Use `convert_tool -f WAV` or `strip_headers.py` to remove headers.
 
 ### Playback Issues
 
-**No output signal:**
+**No output signal / very weak signal:**
 - Verify RF OUT 1 connection
 - Check `python dac_stream.py --config` shows correct settings
 - Ensure DAC mode is `DAC_NET`
+- **Check WAV bit depth:** DAC requires 16-bit WAV, not 8-bit
+  - convert_tool outputs 8-bit (won't play correctly)
+  - Use `resample_capture.py` which outputs proper 16-bit WAV
+  - Verify with: `python -c "import wave; print(wave.open('file.wav').getsampwidth())"`
+    - Should show `2` (16-bit), not `1` (8-bit)
 
 **Chroma shimmer/color issues:**
 - Resampling affects colorburst phase
@@ -478,3 +493,20 @@ The tiny default `adc_size` causes DMA buffer overflow, resulting in glitches ev
 | Samples per frame | ~521,354 |
 
 The fractional samples/line causes timing drift. For perfect NTSC timing, resample to 4fsc (910 samples/line exactly).
+
+### DAC Voltage Scaling
+
+The Red Pitaya DAC expects sample values where the **full range represents ±1V output**:
+
+| Format | Sample Range | Voltage Range | Notes |
+|--------|--------------|---------------|-------|
+| 8-bit signed | ±127 | ±1V | ADC capture format |
+| 16-bit signed | ±32767 | ±1V | **DAC playback format** |
+
+**Conversion:** To convert 8-bit ADC samples to 16-bit DAC samples, multiply by 258 (≈32767/127).
+
+**Why this matters:**
+- convert_tool outputs 8-bit values (range ±127)
+- If played directly, the DAC interprets ±127 as a tiny fraction of ±32767
+- Result: ~0.4% of expected voltage = no visible signal
+- Solution: `resample_capture.py` scales 8-bit to 16-bit automatically
