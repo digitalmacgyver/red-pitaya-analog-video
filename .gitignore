@@ -3,6 +3,10 @@
 credentials.env
 *.secret
 
+# Debug and temporary files
+debug/
+/tmp/
+
 # Captured data (large files)
 *.bin
 *.npy

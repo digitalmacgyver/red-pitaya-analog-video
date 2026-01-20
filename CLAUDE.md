@@ -239,39 +239,74 @@ python stream_receiver.py --help-server
 | SD Card | ~10 MB/s | Too slow for full rate |
 | Ethernet | 62.5 MB/s | ✓ Can handle our 31.25 MB/s |
 
+## ADC Capture via Network Streaming
+
+### Recommended: `adc_capture.py`
+
+Command-line tool that captures via network streaming without requiring the web UI:
+
+```bash
+# Capture 30 seconds at 15.625 MS/s
+python adc_capture.py -d 30
+
+# Capture with specific output directory
+python adc_capture.py -d 30 -o /path/to/output
+
+# Show current configuration
+python adc_capture.py --config
+```
+
+**Key Features:**
+- Auto-starts streaming server via SSH (no web UI needed)
+- Automatically sets correct buffer sizes to prevent glitches
+- Duration-based capture with automatic stop
+
+### CRITICAL: Buffer Size Configuration
+
+The streaming application has an undocumented buffer setting that causes glitches if too small:
+
+| Setting | Default | Required |
+|---------|---------|----------|
+| `adc_size` | 787,968 (768 KB) | 134,217,728 (128 MB) |
+| `block_size` | 8,388,608 (8 MB) | (already correct) |
+
+**Without this fix, captures have glitches every ~65,660 samples (~64 KB DMA buffer overflow)!**
+
+The `adc_capture.py` script sets these automatically. If using the web UI, set manually:
+```bash
+./rp_streaming/cmd/rpsa_client -c -h 192.168.0.6 -i "adc_size=134217728" -w
+```
+
+### Starting Streaming Server via SSH
+
+```bash
+ssh root@192.168.0.6 "cd /opt/redpitaya/bin && \
+  LD_LIBRARY_PATH=/opt/redpitaya/lib /opt/redpitaya/sbin/overlay.sh stream_app && \
+  sleep 1 && \
+  LD_LIBRARY_PATH=/opt/redpitaya/lib ./streaming-server -v &"
+```
+
 ## DAC Network Streaming (For Longer Playback)
 
-For playback longer than ~4.3 seconds (DMG limit), use DAC network streaming with resampled files.
+For playback longer than ~4.3 seconds (DMG limit), use DAC network streaming.
 
-### Why Resampling is Required
+### Key Discovery: 15.625 MS/s Works!
 
-The Red Pitaya DAC streaming has rate limits:
-- **16-bit mode:** ~5 MS/s max stable rate
-- **8-bit mode:** ~10 MS/s max stable rate
-
-Since our capture rate (15.625 MS/s) exceeds these limits, we must resample to a lower rate for streaming playback.
-
-**Recommended:** Resample to **2fsc (7.159 MS/s)** which:
-- Fits within the 8-bit streaming limit
-- Provides 455 integer samples per NTSC line (clean timing)
-- Still exceeds Nyquist for CVBS bandwidth (4.2 MHz)
+Despite Red Pitaya documentation stating DAC streaming is limited to ~10 MS/s, **testing shows 15.625 MS/s works reliably**. This means:
+- No resampling required for playback at original capture rate
+- Color/chroma issues from resampling are avoided
+- Simpler workflow
 
 ### DAC Streaming Workflow
 
-1. **Resample capture to 2fsc:**
+1. **Convert capture to WAV (no resampling):**
    ```bash
-   python resample_capture.py capture.bin 2fsc
-   # Creates: capture_resampled_2fsc.wav
+   python resample_capture.py capture.bin 15.625M -o playback.wav
    ```
 
 2. **Stream to Red Pitaya:**
    ```bash
-   # Using wrapper script
-   python dac_stream.py capture_resampled_2fsc.wav
-
-   # Or using rpsa_client directly
-   ./rp_streaming/cmd/rpsa_client -o -h 192.168.0.6 -f wav \
-     -d capture_resampled_2fsc.wav -r 1
+   python dac_stream.py playback.wav --repeat inf
    ```
 
 ### DAC Streaming Script: `dac_stream.py`
@@ -283,12 +318,6 @@ python dac_stream.py /path/to/file.wav
 # Stream with infinite loop
 python dac_stream.py /path/to/file.wav --repeat inf
 
-# Stream with specific repeat count
-python dac_stream.py /path/to/file.wav --repeat 5
-
-# Specify custom sample rate (if different from WAV header)
-python dac_stream.py /path/to/file.wav --rate 7159090
-
 # Stop DAC output
 python dac_stream.py --stop
 
@@ -296,30 +325,13 @@ python dac_stream.py --stop
 python dac_stream.py --config
 ```
 
-### rpsa_client Direct Usage
+### DAC Streaming Rates (Updated)
 
-```bash
-# Stream WAV file once
-./rp_streaming/cmd/rpsa_client -o -h 192.168.0.6 -f wav -d file.wav -r 1
-
-# Stream infinitely
-./rp_streaming/cmd/rpsa_client -o -h 192.168.0.6 -f wav -d file.wav -r inf
-
-# Configure DAC rate manually
-./rp_streaming/cmd/rpsa_client -c -h 192.168.0.6 -i "dac_rate=7159090" -w
-./rp_streaming/cmd/rpsa_client -c -h 192.168.0.6 -i "dac_pass_mode=DAC_NET" -w
-
-# Check current configuration
-./rp_streaming/cmd/rpsa_client -c -h 192.168.0.6 -g V1
-```
-
-### DAC Streaming Limits
-
-| Sample Rate | Bits | Duration Limit | Use Case |
-|-------------|------|----------------|----------|
-| 2fsc (7.159 MS/s) | 16 | Unlimited | Recommended for CVBS |
-| 4fsc (14.318 MS/s) | 16 | Limited/unstable | May have underruns |
-| 15.625 MS/s | 16 | Not supported | Use DMG instead |
+| Sample Rate | Status | Notes |
+|-------------|--------|-------|
+| 15.625 MS/s | **Works** | Original capture rate, no resampling |
+| 14.318 MS/s (4fsc) | Works | Standard CVBS rate |
+| 7.159 MS/s (2fsc) | Works | Half bandwidth |
 
 ### File Requirements
 
@@ -327,77 +339,55 @@ python dac_stream.py --config
 - **Alignment:** Data must be multiple of 128 bytes
 - **Max size:** 4 GB per WAV file (~268 million samples)
 
-## Current Status (2026-01-19)
+## Current Status (2026-01-20)
 
 ### What Works
-- **Capture:** Multiple methods working:
+- **Capture:**
+  - `adc_capture.py` - **Recommended** command-line capture via SSH (no web UI needed)
   - `cvbs_capture.ipynb` - File-based DMA capture to Red Pitaya filesystem
-  - Red Pitaya Streaming App + Windows client - Network streaming for longer captures
-  - `stream_capture.py` - Custom SSH-triggered streaming (alternative method)
-- **Playback:** Two methods available:
-  - `cvbs_playback_optimized.py` - DMG playback (up to ~4.3 seconds at 15.625 MS/s)
-  - `dac_stream.py` - DAC network streaming (unlimited duration at 2fsc/7.159 MS/s)
-- **DMA/DMG:** 128 MB region configured and working for both capture and playback
-- **Data Quality:** Captured CVBS shows correct voltage levels
-- **Timing Analysis:** `analyze_bin.py` - Analyze VBI/HBI timing and detect drift
-- **Resampling:** `resample_capture.py` - Resample via 4×fsc for proper NTSC alignment
+  - Red Pitaya Streaming App - Web UI-based streaming (requires manual buffer config)
+- **Playback:**
+  - `dac_stream.py` - **Recommended** DAC network streaming (unlimited duration, works at 15.625 MS/s)
+  - `cvbs_playback_optimized.py` - DMG playback (up to ~4.3 seconds)
+- **DMA/DMG:** 128 MB region configured and working
+- **Buffer Configuration:** Critical `adc_size=128MB` setting discovered and documented
+- **Timing Analysis:** `analyze_bin.py` - Analyze VBI/HBI timing
+- **Resampling:** `resample_capture.py` - Direct one-pass sinc resampling with gain/centering options
 
-### Playback Workflow (Recommended)
-1. Capture using streaming app (8-bit, 15.625 MS/s) → .bin file
-2. Upload: `scp capture.bin root@192.168.0.6:/tmp/`
-3. Play: `ssh root@192.168.0.6 "python3 /home/jupyter/cvbs_project/cvbs_playback_optimized.py --skip-header /tmp/capture.bin"`
+### End-to-End Workflow (Recommended)
 
-No intermediate conversion needed - the optimized script reads int8 directly and converts in chunks.
+```bash
+# 1. Capture 30 seconds
+python adc_capture.py -d 30 -o /wintmp/analog_video/rpsa_client/output
 
-### Resampling Workflow (for DAC streaming or external players)
-1. Resample to desired rate: `python resample_capture.py capture.bin 4fsc`
-2. Stream via rpsa_client: `rpsa_client.exe -o -h 192.168.0.6 -f wav -d capture_4fsc.wav -r inf`
+# 2. Convert to WAV (no resampling for best quality)
+python resample_capture.py /path/to/capture.bin 15.625M -o playback.wav
 
-Available presets: 4fsc (14.318 MHz), 2fsc (7.159 MHz), 1fsc (3.579 MHz), 0.5fsc (1.790 MHz)
+# 3. Play back
+python dac_stream.py playback.wav --repeat inf
+```
 
-### NTSC Timing Analysis Findings
+### Key Discoveries
 
-**Key Discovery:** Red Pitaya captures at 15.625 MS/s, which gives **993.056 samples per NTSC line** - a fractional number causing timing drift:
-- 0.056 samples/line drift
-- 14.6 samples/field cumulative error
-- 876 samples/second timing slip
+**DAC Streaming at 15.625 MS/s:** Despite documentation stating ~10 MS/s limit, **15.625 MS/s works reliably**. This eliminates the need for resampling and avoids color/chroma issues.
 
-**Solution:** Resample via 4×fsc (14.31818 MS/s) which gives exactly **910 samples/line**, eliminating fractional accumulation.
-
-### DMG Technical Details
-- **API input:** float32 (-1.0 to 1.0)
-- **Internal storage:** int16 (2 bytes/sample) - API converts automatically
-- **Memory reservation:** Must use `num_samples * 2` bytes (not * 4)
-- **Max duration:** 128 MB / 2 bytes = 64M samples = **4.3 seconds**
-- **Chunked writes:** Use `rp_GenAxiWriteWaveformOffset(ch, offset, data)` for memory efficiency
+**Buffer Size Critical:** Default `adc_size` of 768 KB causes glitches every ~65K samples. Must set to 128 MB.
 
 ### Known Limitations
-1. **DMG memory limit:** 128 MB = ~4.3 seconds max playback at 15.625 MS/s
-2. **DAC streaming rate limit:** ~5-10 MS/s max - requires resampling to 2fsc (7.159 MS/s) for streaming playback
-3. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
-
-### Files on Red Pitaya Jupyter Server
-| File | Purpose | Status |
-|------|---------|--------|
-| `cvbs_capture.ipynb` | Capture CVBS to file | Working |
-| `cvbs_playback_optimized.py` | Optimized DMG playback | **Recommended** |
-| `cvbs_dmg_playback.ipynb` | DMG playback (legacy) | Working |
-| `setup_dma_memory.ipynb` | Expand DMA region | Working |
-| `/home/jupyter/cvbs_project/cvbs_captures/` | Directory for playback files | Active |
+1. **DMG memory limit:** 128 MB = ~4.3 seconds max playback
+2. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
 
 ### Local Files
 | File | Purpose |
 |------|---------|
-| `analyze_bin.py` | Analyze CVBS timing (VBI/HBI detection, jitter, drift) |
-| `resample_capture.py` | Resample captures via 4×fsc intermediate for NTSC alignment |
-| `dac_stream.py` | Stream WAV files to Red Pitaya DAC via network |
-| `cvbs_playback_optimized.py` | Optimized playback script (reads int8 directly) |
+| `adc_capture.py` | **Recommended** command-line ADC streaming capture |
+| `dac_stream.py` | **Recommended** DAC streaming playback |
+| `resample_capture.py` | Convert/resample captures with gain/centering options |
+| `analyze_bin.py` | Analyze CVBS timing (VBI/HBI detection, jitter) |
+| `visualize_capture.py` | Visualize captured waveforms |
+| `cvbs_playback_optimized.py` | DMG playback script (for short clips) |
 | `convert_to_playback.py` | Legacy: Convert 8-bit .bin to float32 .f32 |
-| `visualize_capture.py` | Visualize captured data |
-| `cvbs_capture.ipynb` | Capture notebook (local copy) |
-| `cvbs_dmg_playback.ipynb` | Playback notebook (local copy) |
 | `README_CAPTURE.md` | Capture and playback documentation |
-| `.credentials` | Red Pitaya login (root/root) - gitignored |
 
 ## Next Steps
 
@@ -406,12 +396,14 @@ Available presets: 4fsc (14.318 MHz), 2fsc (7.159 MHz), 1fsc (3.579 MHz), 0.5fsc
 3. ~~Upgrade Red Pitaya OS to 2.07-48+~~
 4. ~~Test playback with DMG~~
 5. ~~Implement network streaming for longer captures~~
-6. ~~Fix DMG memory reservation (was using float32 size, now uses int16)~~
-7. ~~Optimize playback to read int8 directly (no intermediate float32 file)~~
-8. ~~Post-processing to resample to exact 4fsc~~ (resample_capture.py with 4fsc intermediate)
-9. ~~Analyze CVBS timing to identify drift issues~~ (analyze_bin.py)
-10. Software timebase correction for VHS captures
-11. ~~Investigate continuous DAC streaming for longer playback~~ (working at 2fsc via dac_stream.py)
+6. ~~Fix DMG memory reservation~~
+7. ~~Optimize playback to read int8 directly~~
+8. ~~Post-processing to resample to exact 4fsc~~
+9. ~~Analyze CVBS timing to identify drift issues~~
+10. ~~Investigate continuous DAC streaming for longer playback~~ (works at 15.625 MS/s!)
+11. ~~Create command-line capture tool~~ (adc_capture.py)
+12. ~~Discover and document critical adc_size buffer setting~~
+13. Software timebase correction for VHS captures
 
 ## References
 
