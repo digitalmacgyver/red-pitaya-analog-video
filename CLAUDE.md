@@ -377,6 +377,10 @@ python dac_stream.py playback.wav --repeat inf
 1. **DMG memory limit:** 128 MB = ~4.3 seconds max playback
 2. **VHS timebase instability:** Captured VHS shows timing jitter (expected without TBC)
 
+### Scratch Space
+
+Use `/wintmp/analog_video/rpsa_client/output/tmp/` for temporary files during development and testing. Do not use `/tmp` as local filesystem space is limited.
+
 ### Local Files
 | File | Purpose |
 |------|---------|
