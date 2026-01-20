@@ -2,6 +2,14 @@
 
 Tools for recording and replaying CVBS (composite video) signals using a Red Pitaya Stemlab 125-14.
 
+## Prerequisites
+
+- **Red Pitaya Stemlab 125-14** with OS 2.07-43 or later
+- **Python 3.8+** with numpy, scipy
+- **Red Pitaya streaming client tools** - install in `./rp_streaming/cmd/`
+  - Download from: https://github.com/RedPitaya/RedPitaya/tree/master/apps-tools/streaming_manager
+  - Required binaries: `rpsa_client`, `convert_tool`
+
 ## Quick Start: End-to-End Workflow
 
 ### 1. Capture (30 seconds of CVBS)
