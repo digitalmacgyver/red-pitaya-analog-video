@@ -11,16 +11,17 @@ Tools for recording and replaying CVBS (composite video) signals using a Red Pit
 python adc_capture.py -d 30 -o /path/to/output
 ```
 
-### 2. Convert for Playback (strips block headers)
+### 2. Convert for Playback
 
 ```bash
-# Convert .bin to .wav using Red Pitaya's convert_tool
-# NOTE: Format flag must be UPPERCASE (-f WAV not -f wav)
-rp_streaming/cmd/convert_tool /path/to/capture.bin -f WAV
-# Creates capture.wav in the same directory
+# Convert .bin to .wav (automatically strips block headers)
+python resample_capture.py /path/to/capture.bin 15.625M
+
+# Or resample to a different rate
+python resample_capture.py /path/to/capture.bin 2fsc
 ```
 
-The `.bin` file format includes 112-byte block headers every 8MB (see "BIN File Format" below). The convert_tool properly strips these headers during conversion.
+`resample_capture.py` automatically detects .bin files with block headers and uses `convert_tool` to strip them before processing.
 
 ### 3. Play Back via DAC Streaming
 
@@ -64,10 +65,11 @@ ssh-copy-id root@192.168.0.6
 | Tool | Purpose |
 |------|---------|
 | `adc_capture.py` | **Recommended capture** - Command-line streaming capture via SSH |
-| `rp_streaming/cmd/convert_tool` | **Recommended conversion** - Official tool to convert .bin to .wav (strips headers) |
+| `resample_capture.py` | **Recommended conversion** - Convert .bin to .wav (auto-strips headers), resample, apply gain |
 | `dac_stream.py` | **Recommended playback** - DAC streaming for unlimited duration |
-| `resample_capture.py` | Convert/resample captures, apply gain compensation |
-| `strip_headers.py` | Alternative header stripping (if convert_tool unavailable) |
+| `rp_streaming/cmd/convert_tool` | Official Red Pitaya tool (called internally by resample_capture.py) |
+| `strip_headers.py` | Fallback header stripping (if convert_tool unavailable) |
+| `scan_glitches.py` | Detect glitch spikes in capture files |
 | `analyze_bin.py` | Analyze CVBS timing and quality |
 | `visualize_capture.py` | Visualize captured waveforms |
 
