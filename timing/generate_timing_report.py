@@ -158,23 +158,14 @@ def parse_timing_csv(filepath: str, label: str = None,
     if label is None:
         label = Path(filepath).stem
 
-    times = []
-    h_vals = []
-    v_vals = []
+    # Use numpy for fast CSV loading (much faster than csv.reader for large files)
+    # Skip header row, load all columns
+    data = np.genfromtxt(filepath, delimiter=',', skip_header=1,
+                         dtype=[('time', 'f8'), ('ch0', 'i1'), ('ch1', 'i1')])
 
-    with open(filepath, 'r') as f:
-        reader = csv.reader(f)
-        header = next(reader)  # Skip header
-
-        for row in reader:
-            if len(row) >= 3:
-                times.append(float(row[0]))
-                h_vals.append(int(row[1]))
-                v_vals.append(int(row[2]))
-
-    times = np.array(times)
-    h_vals = np.array(h_vals)
-    v_vals = np.array(v_vals)
+    times = data['time']
+    h_vals = data['ch0']
+    v_vals = data['ch1']
 
     # Quantize timing values if sample rate provided
     if sample_rate_mhz is not None:
@@ -190,13 +181,10 @@ def parse_timing_csv(filepath: str, label: str = None,
     v_times = times[v_edges]
     v_periods = np.diff(v_times)
 
-    # Calculate lines per field
-    lines_per_field = []
-    for i in range(len(v_times) - 1):
-        # Count H events between consecutive V events
-        mask = (h_times >= v_times[i]) & (h_times < v_times[i + 1])
-        lines_per_field.append(np.sum(mask))
-    lines_per_field = np.array(lines_per_field)
+    # Calculate lines per field using searchsorted (O(n log n) instead of O(n*m))
+    # For each v_time, find how many h_times fall before it
+    h_counts_at_v = np.searchsorted(h_times, v_times)
+    lines_per_field = np.diff(h_counts_at_v)
 
     duration = times[-1] - times[0] if len(times) > 0 else 0
 
