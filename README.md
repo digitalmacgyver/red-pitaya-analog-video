@@ -38,7 +38,7 @@ python resample_capture.py /path/to/capture.bin 2fsc
 python dac_stream.py /path/to/capture.wav --repeat inf
 ```
 
-**Note:** Playback at 15.625 MS/s works reliably despite Red Pitaya documentation stating a 10 MS/s limit for DAC streaming.
+**Note:** Playback at 15.625 MS/s functions but exceeds Red Pitaya's documented 10 MS/s limit for DAC streaming, causing periodic timing glitches (see [Streaming Rate Trade-offs](#streaming-rate-trade-offs)).
 
 ---
 
@@ -319,9 +319,10 @@ python dac_stream.py --stop
 
 | Rate | Status | Notes |
 |------|--------|-------|
-| 15.625 MS/s | **Works** | Original capture rate |
+| 15.625 MS/s | Marginal | Original capture rate; timing glitches (exceeds 10 MS/s limit) |
+| 10.74 MS/s (3fsc) | **Recommended** | Within spec; timing-accurate but poor picture quality |
 | 7.159 MS/s (2fsc) | Works | Standard for streaming |
-| 14.318 MS/s (4fsc) | Works | Standard CVBS rate |
+| 14.318 MS/s (4fsc) | Marginal | Standard CVBS rate; likely has timing glitches |
 
 ---
 
@@ -340,6 +341,7 @@ resample_capture.py <input.bin> <target_rate> [-o output.wav] [OPTIONS]
 | Preset | Sample Rate | Samples/Line | Notes |
 |--------|-------------|--------------|-------|
 | `4fsc` | 14.31818 MS/s | 910 | Standard CVBS digitization |
+| `3fsc` | 10.73864 MS/s | 682.5 | **Recommended for streaming** (close to 10 MS/s limit) |
 | `2fsc` | 7.15909 MS/s | 455 | Half bandwidth |
 | `1fsc` | 3.57954 MS/s | 227.5 | Color subcarrier rate |
 | `15.625M` | 15.625 MS/s | 993 | Original capture rate (no resampling) |
@@ -522,12 +524,30 @@ Use `convert_tool -f WAV` or `strip_headers.py` to remove headers.
 
 ## Technical Notes
 
-### Why 15.625 MS/s Works for DAC Streaming
+### Streaming Rate Trade-offs
 
-Red Pitaya documentation states DAC streaming is limited to ~10 MS/s, but testing shows 15.625 MS/s works reliably. This may be:
-- Conservative documentation
-- Hardware-dependent (newer FPGA/firmware)
-- Network-dependent (local gigabit connection)
+Red Pitaya documentation states DAC streaming is limited to ~10 MS/s. Streaming at 15.625 MS/s (the default capture rate) **functions marginally** but exhibits notable recurring pauses in playback, presumed to occur on DMA buffer switches.
+
+**Trade-off summary:**
+
+| Rate | Picture Quality | Timing Stability | Use Case |
+|------|-----------------|------------------|----------|
+| **15.625 MS/s** | Good | Poor (~1/8 line glitch every ~0.5s) | Visual quality priority |
+| **3fsc (10.74 MS/s)** | Poor/marginal | Good (within spec, no glitches) | Timing analysis priority |
+
+**Recommendation:**
+- **For timing analysis:** Resample to 3fsc before playback. The picture quality is poor/marginal, but timing relationships are preserved accurately.
+- **For picture quality:** Stream at 15.625 MS/s, but be aware the Red Pitaya will cause timebase instability (approximately 1/8th of a line delay, occurring a few times per second).
+
+```bash
+# For timing-accurate playback (poor picture)
+python resample_capture.py capture.bin 3fsc
+python dac_stream.py capture_3fsc.wav --repeat inf
+
+# For picture-quality playback (timing glitches)
+python resample_capture.py capture.bin 15.625M
+python dac_stream.py capture.wav --repeat inf
+```
 
 ### Buffer Size Discovery
 
@@ -567,24 +587,28 @@ The Red Pitaya DAC expects sample values where the **full range represents ±1V 
 - Result: ~0.4% of expected voltage = no visible signal
 - Solution: `resample_capture.py` scales 8-bit to 16-bit automatically
 
-### Known Issue: DMA Buffer Boundary Pause
+### Known Issue: DMA Buffer Boundary Pause (at 15.625 MS/s)
 
-When playing back captured video via DAC streaming, we observe a **regular ~7.85 µs pause** in signal output. This pause occurs at precise intervals corresponding to 8 MB DMA buffer boundaries.
+When streaming at 15.625 MS/s (above the documented 10 MS/s limit), we observe **recurring ~7.85 µs pauses** in signal output. These pauses are presumed to occur on DMA buffer switches and may be an artifact of exceeding the documented streaming rate limit.
 
-**Observed behavior:**
-- Pause duration: ~7.85 µs (adds to one field period)
+**Observed behavior (at 15.625 MS/s):**
+- Pause duration: ~7.85 µs (approximately 1/8th of a horizontal line)
 - Interval: Every 32-33 fields (~0.534 seconds)
 - Samples between pauses: ~8,385,000 (≈ 8 MB at 1 byte/sample)
 
 **Impact:**
 - One field every ~0.5 seconds is delayed by ~8 µs
+- Visible as brief horizontal timing glitch a few times per second
 - Horizontal timing max extends to ~8000 ns (vs ~150 ns for reference signal)
 - Inflates RMS jitter and std dev statistics for Red Pitaya output
 
-**Root cause:**
-Red Pitaya uses ping-pong buffering for DMA transfers. The FPGA briefly pauses DAC output while switching between 8 MB buffer segments. This is a known architectural limitation of the Xilinx Zynq DMA implementation.
+**Mitigation:**
+Resample to 3fsc (10.74 MS/s) before playback to stay within the documented streaming limit. This eliminates timing glitches but results in poorer picture quality. See [Streaming Rate Trade-offs](#streaming-rate-trade-offs) for details.
+
+**Presumed root cause:**
+Red Pitaya uses ping-pong buffering for DMA transfers. At rates exceeding the documented limit, the system may not complete buffer switches seamlessly, causing brief output pauses.
 
 **Related issues:**
 - [OpenDGPS/zynq-axi-dma-sg #4](https://github.com/OpenDGPS/zynq-axi-dma-sg/issues/4) - Discontinuities at DMA descriptor boundaries
 - [pavel-demin/red-pitaya-notes #320](https://github.com/pavel-demin/red-pitaya-notes/issues/320) - DMA buffer handling
-- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Describes ping-pong buffer architecture
+- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Documents 10 MS/s streaming limit

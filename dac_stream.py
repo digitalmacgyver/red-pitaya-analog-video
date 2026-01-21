@@ -422,10 +422,11 @@ Examples:
         print(f"\nWARNING: DAC rate ({dac_rate:,} Hz) differs from WAV rate ({wav_info['sample_rate']:,} Hz)")
         print(f"         Playback will be {'faster' if dac_rate > wav_info['sample_rate'] else 'slower'} than recorded.")
 
-    # Check rate limits
+    # Check rate limits - 15.625 MS/s functions marginally but causes timing glitches
     if dac_rate > 10000000:
-        print(f"\nWARNING: DAC rate {dac_rate:,} Hz exceeds recommended 10 MS/s limit for streaming.")
-        print(f"         You may experience buffer underruns or signal artifacts.")
+        print(f"\nWARNING: DAC rate {dac_rate:,} Hz exceeds documented 10 MS/s streaming limit.")
+        print(f"         Expect recurring ~8µs timing glitches (~1/8 line) on DMA buffer switches.")
+        print(f"         For timing-accurate playback, resample to 3fsc (10.74 MS/s) first.")
 
     # Check basic connectivity first
     target_host = args.host or DEFAULT_HOST

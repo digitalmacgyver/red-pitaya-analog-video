@@ -124,14 +124,14 @@ The report includes:
 | **Jitter (P-P)** | Peak-to-peak timing deviation (max - min) |
 | **TIE** | Time Interval Error: deviation from ideal nominal timing |
 
-## Known Artifacts: Red Pitaya DMA Buffer Pause
+## Known Artifacts: Red Pitaya DMA Buffer Pause (at 15.625 MS/s)
 
-When analyzing Red Pitaya DAC output, you will observe a **regular ~7.85 µs timing spike** in field period measurements. This is caused by DMA buffer switching, not signal source instability.
+When analyzing Red Pitaya DAC output **streamed at 15.625 MS/s**, you may observe **recurring ~7.85 µs timing spikes** in field period measurements. These are presumed to occur on DMA buffer switches when exceeding the documented 10 MS/s streaming limit.
 
-**Observed characteristics:**
+**Observed characteristics (at 15.625 MS/s):**
 | Measurement | Value |
 |-------------|-------|
-| Spike magnitude | +7.85 µs (added to field period) |
+| Spike magnitude | +7.85 µs (~1/8th horizontal line) |
 | Spike interval | 32-33 fields (~0.534 seconds) |
 | Corresponding buffer size | 8 MB (8,385,000 samples at 15.625 MS/s) |
 
@@ -140,13 +140,19 @@ When analyzing Red Pitaya DAC output, you will observe a **regular ~7.85 µs tim
 - RMS jitter and std dev elevated due to periodic outliers
 - Median remains accurate (robust to outliers)
 
-**Root cause:**
-Red Pitaya uses ping-pong DMA buffering. The FPGA pauses DAC output while switching between 8 MB buffer segments. This is a known limitation of the Xilinx Zynq DMA architecture.
+**Streaming rate trade-offs:**
+- **15.625 MS/s:** Good picture quality, but recurring timing glitches (~1/8 line delay a few times per second)
+- **3fsc (10.74 MS/s):** Poor/marginal picture quality, but timing-accurate (within documented streaming limit)
+
+If analyzing timing relationships, resample to 3fsc before playback. If picture quality matters more, use 15.625 MS/s but interpret timing statistics knowing they include DMA-induced outliers.
+
+**Presumed root cause:**
+Red Pitaya uses ping-pong DMA buffering. At streaming rates exceeding the documented 10 MS/s limit, the system may not complete buffer switches seamlessly, causing brief output pauses.
 
 **References:**
 - [OpenDGPS/zynq-axi-dma-sg #4](https://github.com/OpenDGPS/zynq-axi-dma-sg/issues/4) - Documents discontinuities at DMA descriptor boundaries
 - [pavel-demin/red-pitaya-notes #320](https://github.com/pavel-demin/red-pitaya-notes/issues/320) - DMA implementation details
-- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Ping-pong buffer architecture
+- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Documents 10 MS/s streaming limit
 
 ## Example Workflow
 
