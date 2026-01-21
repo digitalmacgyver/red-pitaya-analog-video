@@ -13,7 +13,7 @@ Usage:
 Arguments:
     input.bin       Input capture file (int8 samples from rpsa_client at 15.625 MS/s)
     target_rate     Target sample rate or preset:
-                    - Presets: 4fsc, 2fsc, 1fsc, 0.5fsc, 15.625M
+                    - Presets: 4fsc, 3fsc, 2fsc, 1fsc, 0.5fsc, 15.625M
                     - Custom: 4M, 4000000, 5.2e6, etc.
 
 Options:
@@ -25,6 +25,7 @@ Options:
 
 Presets (based on NTSC color subcarrier fsc = 3.579545 MHz):
     4fsc     14.31818 MS/s   910 samples/line (standard CVBS digitization)
+    3fsc     10.73863 MS/s   682.5 samples/line
     2fsc      7.15909 MS/s   455 samples/line (recommended for streaming)
     1fsc      3.57954 MS/s   227.5 samples/line
     0.5fsc    1.78977 MS/s   113.75 samples/line
@@ -76,6 +77,7 @@ NTSC_LINE_FREQ = 15734.264  # Hz
 
 # Sample rate presets
 FSC_4 = NTSC_FSC * 4      # 14.31818 MS/s - 910 samples/line
+FSC_3 = NTSC_FSC * 3      # 10.73863 MS/s - 682.5 samples/line
 FSC_2 = NTSC_FSC * 2      # 7.15909 MS/s  - 455 samples/line
 FSC_1 = NTSC_FSC          # 3.57954 MS/s  - 227.5 samples/line
 FSC_HALF = NTSC_FSC / 2   # 1.78977 MS/s  - 113.75 samples/line
@@ -85,6 +87,7 @@ RP_RATE = 125e6 / 8  # 15.625 MS/s
 
 PRESETS = {
     '4fsc': FSC_4,
+    '3fsc': FSC_3,
     '2fsc': FSC_2,
     '1fsc': FSC_1,
     '0.5fsc': FSC_HALF,
@@ -808,6 +811,7 @@ def main():
 Presets:
     15.625M  15.625 MS/s     Original rate (no resampling)
     4fsc     14.31818 MS/s   910 samples/line (standard)
+    3fsc     10.73863 MS/s   682.5 samples/line
     2fsc      7.15909 MS/s   455 samples/line (streaming)
     1fsc      3.57954 MS/s   227.5 samples/line
     0.5fsc    1.78977 MS/s   113.75 samples/line
