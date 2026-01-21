@@ -271,8 +271,33 @@ dac_stream.py <wav_file> [--repeat N|inf] [--rate HZ] [OPTIONS]
 | `--repeat N` | Repeat count (default: 1, use `inf` for infinite) |
 | `--rate HZ` | Override DAC rate (default: from WAV file) |
 | `-H, --host IP` | Red Pitaya IP (default: 192.168.0.6) |
+| `--skip-restart` | Skip server restart for faster startup (see note below) |
 | `--stop` | Stop DAC and exit |
 | `--config` | Show current DAC configuration |
+
+### Fast Startup with --skip-restart
+
+By default, `dac_stream.py` restarts the streaming server on each run to ensure the `dac_size` and `adc_size` memory buffer settings are applied. This is necessary because the Red Pitaya streaming server only reads these settings on startup.
+
+For repeat runs where the server is already configured correctly, use `--skip-restart` to skip this restart and start playback faster:
+
+```bash
+# First run: full startup (configures and restarts server)
+python dac_stream.py capture.wav --repeat inf
+
+# Subsequent runs: fast startup (skips restart)
+python dac_stream.py capture.wav --repeat inf --skip-restart
+```
+
+**Use `--skip-restart` when:**
+- You've already run `dac_stream.py` recently (server is configured)
+- You're doing repeated test playbacks
+- You want faster startup time
+
+**Don't use `--skip-restart` when:**
+- First run after Red Pitaya reboot
+- After using other streaming applications
+- If playback fails with memory errors (run without flag to reconfigure)
 
 ### Examples
 

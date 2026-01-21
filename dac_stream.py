@@ -385,6 +385,9 @@ Examples:
                         help="Repeat count: number or 'inf' (default: 1)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Verbose output")
+    parser.add_argument("--skip-restart", action="store_true",
+                        help="Skip server restart (faster startup for repeat runs). "
+                             "Use when dac_size and adc_size are already configured correctly.")
     parser.add_argument("--stop", action="store_true",
                         help="Stop DAC and exit")
     parser.add_argument("--config", action="store_true",
@@ -438,32 +441,45 @@ Examples:
         print("Error: Could not start streaming server for configuration")
         sys.exit(1)
 
-    # Step 2: Configure memory and write to config file
-    print(f"\nConfiguring memory settings...")
-    configure_memory(target_host)
+    if args.skip_restart:
+        # Fast path: assume dac_size and adc_size are already configured correctly
+        print(f"\n--skip-restart: Skipping memory config and server restart")
+        print(f"  (Assuming dac_size and adc_size are already correct)")
 
-    # Step 3: Configure DAC mode and rate (writes to config file)
-    set_dac_mode_net(target_host)
-    set_dac_rate(target_host, dac_rate)
+        # Still configure DAC mode and rate (these take effect immediately)
+        set_dac_mode_net(target_host)
+        set_dac_rate(target_host, dac_rate)
 
-    # Step 4: RESTART server so it picks up the new memory config
-    # This is CRITICAL - the server reads memory settings on startup only!
-    print(f"\nRestarting streaming server to apply memory settings...")
-    kill_streaming_server(target_host)
-    time.sleep(2)
+        host = target_host
+    else:
+        # Full startup: configure memory and restart server
 
-    if not start_streaming_server_ssh(target_host, retries=2):
-        print("Error: Could not restart streaming server")
-        sys.exit(1)
+        # Step 2: Configure memory and write to config file
+        print(f"\nConfiguring memory settings...")
+        configure_memory(target_host)
 
-    # Wait for server to be fully ready
-    time.sleep(2)
-    if not check_streaming_server(target_host):
-        print("Error: Server restarted but not responding")
-        sys.exit(1)
+        # Step 3: Configure DAC mode and rate (writes to config file)
+        set_dac_mode_net(target_host)
+        set_dac_rate(target_host, dac_rate)
 
-    host = target_host
-    print(f"  Server ready with dac_size={DAC_SIZE:,}")
+        # Step 4: RESTART server so it picks up the new memory config
+        # This is CRITICAL - the server reads memory settings on startup only!
+        print(f"\nRestarting streaming server to apply memory settings...")
+        kill_streaming_server(target_host)
+        time.sleep(2)
+
+        if not start_streaming_server_ssh(target_host, retries=2):
+            print("Error: Could not restart streaming server")
+            sys.exit(1)
+
+        # Wait for server to be fully ready
+        time.sleep(2)
+        if not check_streaming_server(target_host):
+            print("Error: Server restarted but not responding")
+            sys.exit(1)
+
+        host = target_host
+        print(f"  Server ready with dac_size={DAC_SIZE:,}")
 
     # Step 5: Start the DAC server mode
     if not start_dac_server(host):
