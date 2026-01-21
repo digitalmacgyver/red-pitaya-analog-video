@@ -232,6 +232,18 @@ def db_to_linear(db):
     return 10 ** (db / 20.0)
 
 
+def get_resample_params(original_rate, target_rate, max_denominator=10000):
+    """
+    Calculate resampling parameters.
+
+    Returns (up, down, ratio, needs_resampling)
+    """
+    ratio = target_rate / original_rate
+    frac = Fraction(ratio).limit_denominator(max_denominator)
+    needs_resampling = frac.numerator != frac.denominator
+    return frac.numerator, frac.denominator, ratio, needs_resampling
+
+
 def resample_direct(data, original_rate, target_rate, max_denominator=10000):
     """
     Resample data using polyphase FIR filter (sinc interpolation).
@@ -264,6 +276,282 @@ def resample_direct(data, original_rate, target_rate, max_denominator=10000):
     print(f"  Output: {len(resampled):,} samples")
 
     return resampled
+
+
+def analyze_signal_streaming_wav(filepath, sample_size=1024*1024, num_samples=10):
+    """
+    Analyze signal levels from a WAV file by sampling at intervals.
+
+    Memory efficient: only loads small chunks at a time.
+    Returns dict with sync, blank, mid, white percentile estimates.
+    """
+    with wave.open(filepath, 'rb') as wav:
+        total_samples = wav.getnframes()
+        sample_width = wav.getsampwidth()
+
+        if sample_width == 1:
+            dtype = np.int8
+        elif sample_width == 2:
+            dtype = np.int16
+        else:
+            raise ValueError(f"Unsupported sample width: {sample_width}")
+
+        # Collect samples from evenly spaced locations
+        all_samples = []
+        step = max(1, (total_samples - sample_size) // (num_samples - 1)) if num_samples > 1 else 0
+
+        for i in range(num_samples):
+            pos = min(i * step, total_samples - sample_size)
+            wav.setpos(pos)
+            raw_data = wav.readframes(sample_size)
+            chunk = np.frombuffer(raw_data, dtype=dtype)
+            all_samples.append(chunk)
+
+    # Combine samples for percentile calculation
+    combined = np.concatenate(all_samples)
+
+    # Normalize to int8 scale for consistent level reporting
+    if sample_width == 2:
+        combined = combined / 258.0  # Scale 16-bit back to 8-bit range
+
+    p1 = np.percentile(combined, 1)
+    p10 = np.percentile(combined, 10)
+    p50 = np.percentile(combined, 50)
+    p99 = np.percentile(combined, 99)
+
+    print(f"\nSignal levels (sampled from {num_samples} locations):")
+    print(f"  Sync tip (1%%):   {p1:+7.1f}  ({p1/127:+.3f}V)")
+    print(f"  Blanking (10%%):  {p10:+7.1f}  ({p10/127:+.3f}V)")
+    print(f"  Mid (50%%):       {p50:+7.1f}  ({p50/127:+.3f}V)")
+    print(f"  White (99%%):     {p99:+7.1f}  ({p99/127:+.3f}V)")
+    print(f"  Peak-to-peak:    {p99-p1:7.1f}  ({(p99-p1)/127:.3f}V)")
+    print(f"  Center:          {(p1+p99)/2:+7.1f}  ({(p1+p99)/2/127:+.3f}V)")
+
+    return {'sync': p1, 'blank': p10, 'mid': p50, 'white': p99}
+
+
+def analyze_signal_streaming(filepath, header_size=0, sample_size=1024*1024, num_samples=10):
+    """
+    Analyze signal levels by sampling the file at intervals.
+
+    Memory efficient: only loads small chunks at a time.
+    Returns dict with sync, blank, mid, white percentile estimates.
+    """
+    file_size = os.path.getsize(filepath) - header_size
+    total_samples = file_size  # int8 = 1 byte per sample
+
+    # Collect samples from evenly spaced locations
+    all_samples = []
+    step = max(1, (total_samples - sample_size) // (num_samples - 1)) if num_samples > 1 else 0
+
+    with open(filepath, 'rb') as f:
+        for i in range(num_samples):
+            offset = header_size + min(i * step, total_samples - sample_size)
+            f.seek(offset)
+            chunk = np.frombuffer(f.read(sample_size), dtype=np.int8)
+            all_samples.append(chunk)
+
+    # Combine samples for percentile calculation
+    combined = np.concatenate(all_samples)
+
+    p1 = np.percentile(combined, 1)    # Sync tip
+    p10 = np.percentile(combined, 10)  # ~Blanking
+    p50 = np.percentile(combined, 50)  # Mid
+    p99 = np.percentile(combined, 99)  # White
+
+    print(f"\nSignal levels (sampled from {num_samples} locations):")
+    print(f"  Sync tip (1%%):   {p1:+7.1f}  ({p1/127:+.3f}V)")
+    print(f"  Blanking (10%%):  {p10:+7.1f}  ({p10/127:+.3f}V)")
+    print(f"  Mid (50%%):       {p50:+7.1f}  ({p50/127:+.3f}V)")
+    print(f"  White (99%%):     {p99:+7.1f}  ({p99/127:+.3f}V)")
+    print(f"  Peak-to-peak:    {p99-p1:7.1f}  ({(p99-p1)/127:.3f}V)")
+    print(f"  Center:          {(p1+p99)/2:+7.1f}  ({(p1+p99)/2/127:+.3f}V)")
+
+    return {'sync': p1, 'blank': p10, 'mid': p50, 'white': p99}
+
+
+def resample_capture_chunked(input_path, target_rate, output_path,
+                              original_rate, header_size, gain_db, center_signal,
+                              chunk_samples=32*1024*1024):
+    """
+    Resample capture file in chunks to limit memory usage.
+
+    Uses overlap-save method for seamless chunk boundaries.
+    Handles both raw int8 files and WAV files from convert_tool.
+    """
+    # Check if input is a WAV file
+    is_wav = input_path.lower().endswith('.wav')
+
+    if is_wav:
+        # Read WAV metadata
+        with wave.open(input_path, 'rb') as wav_in:
+            wav_channels = wav_in.getnchannels()
+            wav_width = wav_in.getsampwidth()
+            wav_rate = wav_in.getframerate()
+            total_samples = wav_in.getnframes()
+            print(f"  WAV input: {total_samples:,} samples, {wav_width*8}-bit, {wav_rate} Hz")
+            if wav_width == 1:
+                dtype = np.int8
+            elif wav_width == 2:
+                dtype = np.int16
+            else:
+                raise ValueError(f"Unsupported WAV sample width: {wav_width}")
+    else:
+        file_size = os.path.getsize(input_path) - header_size
+        total_samples = file_size  # int8 = 1 byte per sample
+        dtype = np.int8
+        wav_width = 1
+
+    # Get resampling parameters
+    up, down, ratio, needs_resampling = get_resample_params(original_rate, target_rate)
+
+    print(f"\nChunked processing mode (memory-efficient)")
+    print(f"  Input: {total_samples:,} samples ({total_samples/1024/1024:.1f} MB)")
+    print(f"  Chunk size: {chunk_samples:,} samples ({chunk_samples/1024/1024:.1f} MB)")
+
+    if needs_resampling:
+        print(f"  Resampling: {up}/{down} (ratio {ratio:.6f})")
+        # Filter length for overlap calculation
+        # resample_poly uses 10 * max(up, down) + 1 by default
+        filter_len = 10 * max(up, down) + 1
+        # Overlap needed in input samples
+        overlap_in = filter_len + 100  # Add margin
+        # How much of the output to discard at boundaries
+        overlap_out = int(np.ceil(overlap_in * ratio))
+        print(f"  Filter length: {filter_len}, overlap: {overlap_in} samples")
+    else:
+        overlap_in = 0
+        overlap_out = 0
+
+    # Analyze signal for centering (memory-efficient sampling)
+    if is_wav:
+        levels = analyze_signal_streaming_wav(input_path)
+    else:
+        levels = analyze_signal_streaming(input_path, header_size)
+
+    # Calculate centering offset
+    if center_signal:
+        center_offset = (levels['sync'] + levels['white']) / 2
+        print(f"\nCentering: shifting by {-center_offset:+.1f} ({-center_offset/127:+.3f}V)")
+    else:
+        center_offset = 0
+
+    # Calculate gain
+    if gain_db != 0:
+        gain_linear = db_to_linear(gain_db)
+        print(f"Gain: {gain_db:+.1f} dB ({gain_linear:.3f}x linear)")
+    else:
+        gain_linear = 1.0
+
+    # Scale factor: int8 (±127) -> int16 (±32767)
+    scale_factor = 32767.0 / 127.0
+
+    # Calculate expected output size
+    expected_output_samples = int(total_samples * ratio)
+    aligned_output = (expected_output_samples // 64) * 64
+
+    print(f"\nExpected output: {aligned_output:,} samples")
+
+    # Process in chunks
+    # Open input file appropriately
+    if is_wav:
+        fin = wave.open(input_path, 'rb')
+    else:
+        fin = open(input_path, 'rb')
+        fin.seek(header_size)
+
+    try:
+        with wave.open(output_path, 'wb') as wav_out:
+            wav_out.setnchannels(1)
+            wav_out.setsampwidth(2)  # 16-bit
+            wav_out.setframerate(int(round(target_rate)))
+
+            samples_read = 0
+            samples_written = 0
+            chunk_num = 0
+            leftover = np.array([], dtype=np.float64)
+
+            while samples_read < total_samples:
+                # Calculate how much to read this chunk
+                remaining = total_samples - samples_read
+                read_size = min(chunk_samples, remaining)
+
+                # Read chunk based on input type
+                if is_wav:
+                    raw_data = fin.readframes(read_size)
+                    chunk_data = np.frombuffer(raw_data, dtype=dtype)
+                else:
+                    raw_data = fin.read(read_size)
+                    if not raw_data:
+                        break
+                    chunk_data = np.frombuffer(raw_data, dtype=np.int8)
+
+                samples_read += len(chunk_data)
+
+                # Convert to float and normalize to int8 scale (±127)
+                chunk_float = chunk_data.astype(np.float64)
+                if wav_width == 2:
+                    # Scale 16-bit to 8-bit range for consistent processing
+                    chunk_float = chunk_float / 258.0
+
+                # Apply centering/gain
+                if center_offset != 0:
+                    chunk_float = chunk_float - center_offset
+                if gain_linear != 1.0:
+                    chunk_float = chunk_float * gain_linear
+
+                # Prepend leftover from previous chunk for overlap
+                if len(leftover) > 0:
+                    chunk_float = np.concatenate([leftover, chunk_float])
+
+                # Resample if needed
+                if needs_resampling:
+                    resampled = signal.resample_poly(chunk_float, up, down)
+
+                    # For all but last chunk, save overlap for next iteration
+                    if samples_read < total_samples:
+                        # Keep last overlap_in input samples for next chunk
+                        leftover = chunk_float[-overlap_in:]
+                        # Discard last overlap_out output samples (will be recalculated)
+                        resampled = resampled[:-overlap_out] if overlap_out > 0 else resampled
+                    else:
+                        leftover = np.array([])
+                else:
+                    resampled = chunk_float
+                    leftover = np.array([])
+
+                # Convert to int16
+                chunk_16 = resampled * scale_factor
+
+                # Clip to int16 range
+                chunk_16 = np.clip(chunk_16, -32768, 32767).astype(np.int16)
+
+                # Write to WAV
+                wav_out.writeframes(chunk_16.tobytes())
+                samples_written += len(chunk_16)
+                chunk_num += 1
+
+                # Progress
+                pct = samples_read * 100 // total_samples
+                print(f"\r  Progress: {pct}% (chunk {chunk_num}, {samples_written:,} output samples)",
+                      end='', flush=True)
+
+    finally:
+        fin.close()
+
+    print()  # Newline after progress
+
+    # Truncate to aligned length if needed
+    # Note: WAV file is already written, so we'd need to rewrite
+    # For now, just report the actual output
+    duration = samples_written / target_rate
+    print(f"\nOutput: {samples_written:,} samples ({duration:.3f} seconds)")
+
+    file_size = os.path.getsize(output_path)
+    print(f"Saved: {output_path}")
+    print(f"Size: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
+
+    return output_path
 
 
 def analyze_signal(data, name="Signal"):
@@ -351,9 +639,14 @@ def convert_simple(input_path, output_path, header_size, target_rate):
 
 def resample_capture(input_path, target_rate, output_path=None,
                      original_rate=RP_RATE, header_size=None,
-                     skip_header=True, gain_db=0.0, center_signal=False):
+                     skip_header=True, gain_db=0.0, center_signal=False,
+                     chunked_threshold=100*1024*1024):
     """
     Resample capture file with optional gain and centering.
+
+    Args:
+        chunked_threshold: Files larger than this (bytes) use chunked processing
+                          to avoid memory issues. Default 100 MB.
     """
     # Auto-generate output path if not specified
     if output_path is None:
@@ -382,16 +675,38 @@ def resample_capture(input_path, target_rate, output_path=None,
     ratio = target_rate / original_rate
     is_simple = (abs(ratio - 1.0) < 1e-9 and gain_db == 0.0 and not center_signal)
 
+    file_size = os.path.getsize(input_path) - header_size
+
     if is_simple:
         # Fast path: simple int8 to int16 conversion, chunked for memory efficiency
         print(f"Reading {input_path}...")
-        file_size = os.path.getsize(input_path) - header_size
         print(f"File size: {file_size:,} bytes ({file_size/1024/1024:.2f} MB)")
         print(f"Original rate: {original_rate/1e6:.6f} MS/s")
         print(f"Target rate: {target_rate/1e6:.6f} MS/s (same - no resampling)")
         return convert_simple(input_path, output_path, header_size, target_rate)
 
-    # Full processing path (resampling, gain, or centering needed)
+    # Check if file is large enough to require chunked processing
+    # For resampling with gain/centering, float64 uses 8x memory
+    # Plus scipy resample buffers. Use chunked for files > threshold
+    if file_size > chunked_threshold:
+        print(f"Large file detected ({file_size/1024/1024:.1f} MB > {chunked_threshold/1024/1024:.0f} MB threshold)")
+        print(f"Using memory-efficient chunked processing...")
+        print(f"Original rate: {original_rate/1e6:.6f} MS/s")
+        print(f"Target rate: {target_rate/1e6:.6f} MS/s")
+
+        # Show NTSC timing info
+        samples_per_line_orig = original_rate / NTSC_LINE_FREQ
+        samples_per_line_target = target_rate / NTSC_LINE_FREQ
+        print(f"\nNTSC samples per line:")
+        print(f"  Original: {samples_per_line_orig:.3f}")
+        print(f"  Target: {samples_per_line_target:.3f}")
+
+        return resample_capture_chunked(
+            input_path, target_rate, output_path,
+            original_rate, header_size, gain_db, center_signal
+        )
+
+    # Small file: use in-memory processing (original code path)
     print(f"Reading {input_path}...")
     with open(input_path, 'rb') as f:
         f.seek(header_size)
