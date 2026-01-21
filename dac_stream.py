@@ -416,20 +416,48 @@ Examples:
         print(f"\nWARNING: DAC rate {dac_rate:,} Hz exceeds recommended 10 MS/s limit for streaming.")
         print(f"         You may experience buffer underruns or signal artifacts.")
 
-    # Detect board and ensure streaming server is ready
-    host = detect_board(args.host)
-    if not host:
-        print("Error: Could not connect to Red Pitaya")
+    # Check basic connectivity first
+    target_host = args.host or DEFAULT_HOST
+    print(f"\nChecking connectivity to {target_host}...")
+    ok, _, _ = ssh_command(target_host, "echo ok", timeout=5)
+    if not ok:
+        print(f"  ERROR: Cannot SSH to {target_host}")
+        sys.exit(1)
+    print(f"  SSH connection OK")
+
+    # Step 1: Ensure server is running (needed to configure via rpsa_client)
+    if not ensure_server_ready(target_host):
+        print("Error: Could not start streaming server for configuration")
         sys.exit(1)
 
-    # Configure memory (CRITICAL - prevents memory errors)
-    configure_memory(host)
+    # Step 2: Configure memory and write to config file
+    print(f"\nConfiguring memory settings...")
+    configure_memory(target_host)
 
-    # Configure DAC mode and rate
-    set_dac_mode_net(host)
-    set_dac_rate(host, dac_rate)
+    # Step 3: Configure DAC mode and rate (writes to config file)
+    set_dac_mode_net(target_host)
+    set_dac_rate(target_host, dac_rate)
 
-    # Start the DAC server mode
+    # Step 4: RESTART server so it picks up the new memory config
+    # This is CRITICAL - the server reads memory settings on startup only!
+    print(f"\nRestarting streaming server to apply memory settings...")
+    kill_streaming_server(target_host)
+    time.sleep(2)
+
+    if not start_streaming_server_ssh(target_host, retries=2):
+        print("Error: Could not restart streaming server")
+        sys.exit(1)
+
+    # Wait for server to be fully ready
+    time.sleep(2)
+    if not check_streaming_server(target_host):
+        print("Error: Server restarted but not responding")
+        sys.exit(1)
+
+    host = target_host
+    print(f"  Server ready with dac_size={DAC_SIZE:,}")
+
+    # Step 5: Start the DAC server mode
     if not start_dac_server(host):
         print("Warning: DAC server start command failed, attempting anyway...")
 
