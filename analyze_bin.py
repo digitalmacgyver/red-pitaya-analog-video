@@ -200,18 +200,33 @@ def analyze_cvbs_timing(filepath, sample_rate=None, max_seconds=None):
     falling = np.where(edges == 1)[0]
     rising = np.where(edges == -1)[0]
 
-    # Measure pulse widths
-    widths = []
-    for f in falling:
-        r_after = rising[rising > f]
-        if len(r_after) > 0:
-            widths.append(r_after[0] - f)
-        else:
-            widths.append(0)
-    widths = np.array(widths)
+    print(f"Found {len(falling):,} falling edges, {len(rising):,} rising edges")
 
-    # Classify pulses
-    pulse_types = np.array([classify_pulse(w, samples_per_line) for w in widths])
+    # Measure pulse widths using vectorized searchsorted (O(n log n) instead of O(n²))
+    # For each falling edge, find the index of the first rising edge after it
+    rising_indices = np.searchsorted(rising, falling)
+    # Filter valid pairs (where there is a rising edge after the falling edge)
+    valid_mask = rising_indices < len(rising)
+    widths = np.zeros(len(falling), dtype=np.int32)
+    widths[valid_mask] = rising[rising_indices[valid_mask]] - falling[valid_mask]
+
+    # Classify pulses using vectorized operations
+    half_line = samples_per_line / 2
+    eq_max = samples_per_line * 0.055
+    hsync_max = samples_per_line * 0.12
+    broad_min = samples_per_line * 0.35
+    noise_max = samples_per_line * 0.02
+
+    # Create pulse type array (0=noise, 1=EQ, 2=HSYNC, 3=other, 4=BROAD)
+    pulse_type_nums = np.zeros(len(widths), dtype=np.int8)
+    pulse_type_nums[widths >= noise_max] = 3  # other by default
+    pulse_type_nums[(widths >= noise_max) & (widths < eq_max)] = 1  # EQ
+    pulse_type_nums[(widths >= eq_max) & (widths < hsync_max)] = 2  # HSYNC
+    pulse_type_nums[widths >= broad_min] = 4  # BROAD
+
+    # Map to string names for compatibility with rest of code
+    type_names = ["noise", "EQ", "HSYNC", "other", "BROAD"]
+    pulse_types = np.array([type_names[min(t, 4)] for t in pulse_type_nums])
 
     # Count pulse types
     from collections import Counter
@@ -295,12 +310,17 @@ def analyze_cvbs_timing(filepath, sample_rate=None, max_seconds=None):
     print("-" * 70)
 
     # Count H-syncs between same-field VBIs (should be 507 per frame)
+    # Use vectorized counting instead of slow loop
+    hsync_mask = pulse_types == "HSYNC"
+    hsync_cumsum = np.cumsum(hsync_mask)  # Cumulative count of HSYNCs
+
     hsync_counts = []
     if len(vbi_list) >= 3:
         for i in range(len(vbi_list) - 2):
             start_idx = vbi_list[i][-1]  # End of VBI
             end_idx = vbi_list[i+2][0]   # Start of next same-field VBI
-            count = sum(1 for j in range(start_idx, end_idx) if pulse_types[j] == "HSYNC")
+            # Count HSYNCs in range using cumsum difference
+            count = hsync_cumsum[end_idx - 1] - (hsync_cumsum[start_idx - 1] if start_idx > 0 else 0)
             hsync_counts.append(count)
 
     if hsync_counts:
