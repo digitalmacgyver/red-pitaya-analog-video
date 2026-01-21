@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Video Timing Comparison Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: right;
+        }
+        th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+        td:first-child, th:first-child {
+            text-align: left;
+        }
+        .metric-good { color: #27ae60; }
+        .metric-warning { color: #f39c12; }
+        .metric-bad { color: #e74c3c; }
+        .summary-box {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .image-container {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .image-container img {
+            max-width: 100%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 800px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .footnote {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <h1>Video Timing Comparison Report</h1>
+
+    <div class="summary-box">
+        <strong>Captures Compared:</strong><br>
+        <strong>1.</strong> Leitch Generator (1.12s, 17,587 lines, 67 fields)<br>
+        <strong>2.</strong> Red Pitaya (1.12s, 17,587 lines, 67 fields)<br>
+        <br>
+        <strong>Analysis Settings:</strong> First and last 16 fields trimmed from each capture.
+    </div>
+
+    <h2>Horizontal Timing (Line Period)</h2>
+
+    <p>NTSC nominal line period: <strong>63.5556 µs</strong> (15734.264 Hz)</p>
+
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Leitch Generator</th>
+            <th>Red Pitaya</th>
+            <th>NTSC Nominal</th>
+        </tr>
+        <tr>
+            <td>Median</td>
+            <td>63.5500 µs</td>
+            <td>63.5500 µs</td>
+            <td>63.5556 µs</td>
+        </tr>
+        <tr>
+            <td>Mean</td>
+            <td>63.5555 µs</td>
+            <td>63.5562 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Std Dev</td>
+            <td>16.72 ns</td>
+            <td>87.35 ns</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>RMS Jitter</td>
+            <td>17.58 ns</td>
+            <td>87.57 ns</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Peak-to-Peak Jitter</td>
+            <td>100.00 ns</td>
+            <td>8000.00 ns</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Min</td>
+            <td>63.5000 µs</td>
+            <td>63.5000 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Max</td>
+            <td>63.6000 µs</td>
+            <td>71.5000 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>1st Percentile</td>
+            <td>63.5500 µs</td>
+            <td>63.5000 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>5th Percentile</td>
+            <td>63.5500 µs</td>
+            <td>63.5500 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>25th Percentile</td>
+            <td>63.5500 µs</td>
+            <td>63.5500 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>75th Percentile</td>
+            <td>63.5500 µs</td>
+            <td>63.5500 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>95th Percentile</td>
+            <td>63.6000 µs</td>
+            <td>63.6000 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>99th Percentile</td>
+            <td>63.6000 µs</td>
+            <td>63.6000 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Sample Count</td>
+            <td>17,587</td>
+            <td>17,587</td>
+            <td>—</td>
+        </tr>
+    </table>
+
+    <h3>Horizontal Timing Distribution</h3>
+    <div class='image-container'><img src='example_report_images/hist_horizontal.png' alt='Horizontal Histogram'></div>
+
+    <h3>Line-by-Line Timing Distribution</h3>
+    <p>Each row shows the timing distribution for that line number within a field.
+    The thin gray line shows full range (min-max), blue shows 5th-95th percentile,
+    thick blue shows interquartile range (25th-75th), and the dot marks the median.
+    The red dashed line indicates zero deviation from nominal.</p>
+
+    <div class="comparison-grid">
+        <div class='image-container'><img src='example_report_images/heatmap_1.png' alt='Heatmap 1'></div>
+        <div class='image-container'><img src='example_report_images/heatmap_2.png' alt='Heatmap 2'></div>
+    </div>
+
+    <h2>Vertical Timing (Field Period)</h2>
+
+    <p>NTSC nominal field period: <strong>16.6834 ms</strong> (59.94 Hz)</p>
+
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Leitch Generator</th>
+            <th>Red Pitaya</th>
+            <th>NTSC Nominal</th>
+        </tr>
+        <tr>
+            <td>Median</td>
+            <td>16.6833 ms</td>
+            <td>16.6833 ms</td>
+            <td>16.6834 ms</td>
+        </tr>
+        <tr>
+            <td>Mean</td>
+            <td>16.6833 ms</td>
+            <td>16.6835 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Std Dev</td>
+            <td>0.02 µs</td>
+            <td>1.35 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>RMS Jitter</td>
+            <td>0.02 µs</td>
+            <td>1.37 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Peak-to-Peak Jitter</td>
+            <td>0.05 µs</td>
+            <td>7.95 µs</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Min</td>
+            <td>16.6833 ms</td>
+            <td>16.6832 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Max</td>
+            <td>16.6834 ms</td>
+            <td>16.6912 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>1st Percentile</td>
+            <td>16.6833 ms</td>
+            <td>16.6832 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>5th Percentile</td>
+            <td>16.6833 ms</td>
+            <td>16.6832 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>25th Percentile</td>
+            <td>16.6833 ms</td>
+            <td>16.6833 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>75th Percentile</td>
+            <td>16.6833 ms</td>
+            <td>16.6833 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>95th Percentile</td>
+            <td>16.6833 ms</td>
+            <td>16.6833 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>99th Percentile</td>
+            <td>16.6834 ms</td>
+            <td>16.6912 ms</td>
+            <td>—</td>
+        </tr>
+        <tr>
+            <td>Sample Count</td>
+            <td>67</td>
+            <td>67</td>
+            <td>—</td>
+        </tr>
+    </table>
+
+    <h3>Vertical Timing Distribution</h3>
+    <div class='image-container'><img src='example_report_images/hist_vertical.png' alt='Vertical Histogram'></div>
+
+    <h3>Field-to-Field Stability Over Time</h3>
+    <div class='image-container'><img src='example_report_images/field_stability.png' alt='Field Stability'></div>
+
+    <h2>Lines Per Field</h2>
+
+    <p>NTSC nominal: <strong>262.5 lines</strong> per field (alternating 262 and 263)</p>
+
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Leitch Generator</th>
+            <th>Red Pitaya</th>
+        </tr>
+        <tr>
+            <td>Mean Lines/Field</td>
+            <td>262.49</td>
+            <td>262.49</td>
+        </tr>
+        <tr>
+            <td>Min</td>
+            <td>262</td>
+            <td>262</td>
+        </tr>
+        <tr>
+            <td>Max</td>
+            <td>263</td>
+            <td>263</td>
+        </tr>
+    </table>
+
+    <h2>Measurement Uncertainty</h2>
+
+    <p>Logic analyzer sample rate: <strong>20.0 MS/s</strong></p>
+
+    <table>
+        <tr>
+            <th>Parameter</th>
+            <th>Value</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Sample Period</td>
+            <td>50.0 ns</td>
+            <td>Minimum time resolution between edges</td>
+        </tr>
+        <tr>
+            <td>Timing Uncertainty (1σ)</td>
+            <td>±25.0 ns</td>
+            <td>Each edge can be off by ±½ sample period</td>
+        </tr>
+        <tr>
+            <td>Period Uncertainty (1σ)</td>
+            <td>±35.4 ns</td>
+            <td>Two edges: √2 × single edge uncertainty</td>
+        </tr>
+        <tr>
+            <td>Quantization Noise Floor</td>
+            <td>14.4 ns RMS</td>
+            <td>Uniform distribution: σ = Δt/√12</td>
+        </tr>
+    </table>
+
+    <p><em>Jitter values below ~100 ns may be dominated by measurement quantization rather than actual source jitter.</em></p>
+
+    <div class="footnote">
+        <p><strong>Methodology Notes:</strong></p>
+        <ul>
+            <li>Horizontal timing calculated from HSYNC pulse intervals (Channel 0, 1→0 transitions)</li>
+            <li>Vertical timing calculated from VSYNC pulse intervals (Channel 1, 1→0 transitions)</li>
+            <li>Half-lines at field boundaries are excluded from horizontal statistics</li>
+            <li>First and last 16 fields trimmed to avoid transient effects</li>
+            <li>RMS jitter calculated as deviation from median (not nominal)</li>
+            <li>Sample rate: 20.0 MS/s (50.0 ns resolution)</li>
+        </ul>
+        <p>Generated by <code>generate_timing_report.py</code></p>
+    </div>
+</body>
+</html>
