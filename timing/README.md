@@ -88,6 +88,7 @@ python timing/generate_timing_report.py \
 | `--label1 NAME` | Label for capture 1 (default: filename) |
 | `--label2 NAME` | Label for capture 2 (default: filename) |
 | `--skip-fields N` | Fields to skip at start/end (default: 16) |
+| `--sample-rate N` | Logic analyzer sample rate in MS/s (default: 20.0) |
 
 #### Data Trimming
 
@@ -122,6 +123,30 @@ The report includes:
 | **Jitter (RMS)** | Root mean square of timing deviations from median |
 | **Jitter (P-P)** | Peak-to-peak timing deviation (max - min) |
 | **TIE** | Time Interval Error: deviation from ideal nominal timing |
+
+## Known Artifacts: Red Pitaya DMA Buffer Pause
+
+When analyzing Red Pitaya DAC output, you will observe a **regular ~7.85 µs timing spike** in field period measurements. This is caused by DMA buffer switching, not signal source instability.
+
+**Observed characteristics:**
+| Measurement | Value |
+|-------------|-------|
+| Spike magnitude | +7.85 µs (added to field period) |
+| Spike interval | 32-33 fields (~0.534 seconds) |
+| Corresponding buffer size | 8 MB (8,385,000 samples at 15.625 MS/s) |
+
+**Effect on statistics:**
+- Peak-to-peak jitter inflated to ~8000 ns (vs ~150 ns for reference generator)
+- RMS jitter and std dev elevated due to periodic outliers
+- Median remains accurate (robust to outliers)
+
+**Root cause:**
+Red Pitaya uses ping-pong DMA buffering. The FPGA pauses DAC output while switching between 8 MB buffer segments. This is a known limitation of the Xilinx Zynq DMA architecture.
+
+**References:**
+- [OpenDGPS/zynq-axi-dma-sg #4](https://github.com/OpenDGPS/zynq-axi-dma-sg/issues/4) - Documents discontinuities at DMA descriptor boundaries
+- [pavel-demin/red-pitaya-notes #320](https://github.com/pavel-demin/red-pitaya-notes/issues/320) - DMA implementation details
+- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Ping-pong buffer architecture
 
 ## Example Workflow
 

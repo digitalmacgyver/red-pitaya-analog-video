@@ -541,3 +541,25 @@ The Red Pitaya DAC expects sample values where the **full range represents ±1V 
 - If played directly, the DAC interprets ±127 as a tiny fraction of ±32767
 - Result: ~0.4% of expected voltage = no visible signal
 - Solution: `resample_capture.py` scales 8-bit to 16-bit automatically
+
+### Known Issue: DMA Buffer Boundary Pause
+
+When playing back captured video via DAC streaming, we observe a **regular ~7.85 µs pause** in signal output. This pause occurs at precise intervals corresponding to 8 MB DMA buffer boundaries.
+
+**Observed behavior:**
+- Pause duration: ~7.85 µs (adds to one field period)
+- Interval: Every 32-33 fields (~0.534 seconds)
+- Samples between pauses: ~8,385,000 (≈ 8 MB at 1 byte/sample)
+
+**Impact:**
+- One field every ~0.5 seconds is delayed by ~8 µs
+- Horizontal timing max extends to ~8000 ns (vs ~150 ns for reference signal)
+- Inflates RMS jitter and std dev statistics for Red Pitaya output
+
+**Root cause:**
+Red Pitaya uses ping-pong buffering for DMA transfers. The FPGA briefly pauses DAC output while switching between 8 MB buffer segments. This is a known architectural limitation of the Xilinx Zynq DMA implementation.
+
+**Related issues:**
+- [OpenDGPS/zynq-axi-dma-sg #4](https://github.com/OpenDGPS/zynq-axi-dma-sg/issues/4) - Discontinuities at DMA descriptor boundaries
+- [pavel-demin/red-pitaya-notes #320](https://github.com/pavel-demin/red-pitaya-notes/issues/320) - DMA buffer handling
+- [Red Pitaya Streaming Documentation](https://redpitaya.readthedocs.io/en/latest/appsFeatures/applications/streaming/appStreaming.html) - Describes ping-pong buffer architecture
