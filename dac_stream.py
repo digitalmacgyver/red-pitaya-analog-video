@@ -290,7 +290,7 @@ def set_dac_mode_net(host):
 
 
 def start_dac_streaming(host, wav_file, repeat="1", verbose=False):
-    """Start DAC streaming with proper error handling."""
+    """Start DAC streaming with real-time output."""
     print(f"\nStarting DAC stream...")
     print(f"  File: {wav_file}")
     print(f"  Repeat: {repeat}")
@@ -299,45 +299,53 @@ def start_dac_streaming(host, wav_file, repeat="1", verbose=False):
     if verbose:
         args.append("-v")
 
-    print(f"  $ {' '.join(args)}\n")
+    print(f"  $ {' '.join(args)}\n", flush=True)
 
-    # Run with output capture to detect errors
+    # Use Popen for real-time output streaming
     try:
-        result = subprocess.run(args, capture_output=True, text=True)
+        # Merge stderr into stdout and stream line by line
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1  # Line buffered
+        )
+
+        output_lines = []
+        start_time = time.time()
+
+        # Read output line by line in real-time
+        for line in process.stdout:
+            line = line.rstrip()
+            output_lines.append(line)
+            print(line, flush=True)
+
+        # Wait for process to complete
+        returncode = process.wait()
+        elapsed = time.time() - start_time
 
         # Check for errors
-        if result.returncode != 0:
-            print(f"\nDAC streaming failed (exit code {result.returncode})")
-            if result.stderr:
-                print(f"Error: {result.stderr}")
-            if result.stdout:
-                print(f"Output: {result.stdout}")
+        if returncode != 0:
+            print(f"\nDAC streaming failed (exit code {returncode})")
             return False
 
-        # Check if any output indicates success or failure
-        if result.stdout:
-            print(result.stdout)
-        if result.stderr:
-            # Some status messages go to stderr
-            print(result.stderr)
-
-        # If command exited immediately with no output, something went wrong
-        if not result.stdout and not result.stderr:
-            print(f"\nWARNING: DAC streaming command exited with no output")
+        # If command exited very quickly with no output, something went wrong
+        if elapsed < 2.0 and not output_lines:
+            print(f"\nWARNING: DAC streaming command exited immediately with no output")
             print(f"This usually means the DAC server is not ready.")
             print(f"Checking server status...")
 
-            # Check if server is still running
             if not check_streaming_server(host):
                 print(f"  Server stopped responding!")
-                return False
-
             return False
 
         return True
 
     except KeyboardInterrupt:
         print("\n\nStreaming interrupted by user")
+        process.terminate()
+        process.wait()
         return True
     except Exception as e:
         print(f"\nError during streaming: {e}")
