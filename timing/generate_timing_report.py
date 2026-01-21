@@ -252,13 +252,17 @@ def format_time(seconds: float, unit: str = 'auto') -> str:
 
 
 def create_timing_heatmap(data: TimingData, output_path: str, title: str,
-                          nominal_h: float = NTSC_LINE_PERIOD) -> str:
+                          nominal_h: float = NTSC_LINE_PERIOD,
+                          x_range: Tuple[float, float] = None) -> str:
     """
     Create a Tufte-style timing distribution visualization.
 
     Y-axis: Line number within field (1-262)
     X-axis: Timing deviation from nominal
     Shows density of timing at each line position.
+
+    Args:
+        x_range: Optional (min, max) tuple in microseconds for consistent scaling
     """
     if not HAS_MATPLOTLIB:
         return None
@@ -310,6 +314,10 @@ def create_timing_heatmap(data: TimingData, output_path: str, title: str,
     # Reference line at 0 deviation
     ax.axvline(0, color='red', linestyle='--', linewidth=0.5, alpha=0.5)
 
+    # Set consistent X-axis range if provided
+    if x_range is not None:
+        ax.set_xlim(x_range)
+
     # Labels and title
     ax.set_xlabel('Timing Deviation (µs)')
     ax.set_ylabel('Line Number in Field')
@@ -328,6 +336,25 @@ def create_timing_heatmap(data: TimingData, output_path: str, title: str,
     plt.close()
 
     return output_path
+
+
+def get_h_deviation_range(data1: TimingData, data2: TimingData,
+                          nominal_h: float = NTSC_LINE_PERIOD) -> Tuple[float, float]:
+    """Calculate combined X-axis range for horizontal timing heatmaps."""
+    h1_normal, _ = filter_half_lines(data1.h_periods, nominal_h)
+    h2_normal, _ = filter_half_lines(data2.h_periods, nominal_h)
+
+    dev1_us = (h1_normal - nominal_h) * 1e6
+    dev2_us = (h2_normal - nominal_h) * 1e6
+
+    all_devs = np.concatenate([dev1_us, dev2_us])
+    # Use 0.1 and 99.9 percentiles to avoid extreme outliers dominating
+    x_min = np.percentile(all_devs, 0.1)
+    x_max = np.percentile(all_devs, 99.9)
+
+    # Add 5% padding
+    padding = (x_max - x_min) * 0.05
+    return (x_min - padding, x_max + padding)
 
 
 def create_histogram_comparison(data1: TimingData, data2: TimingData,
@@ -392,17 +419,22 @@ def create_histogram_comparison(data1: TimingData, data2: TimingData,
 
 def create_field_stability_plot(data1: TimingData, data2: TimingData,
                                 output_path: str) -> str:
-    """Plot field-to-field timing stability over time."""
+    """Plot field-to-field timing stability over time with consistent Y-axis."""
     if not HAS_MATPLOTLIB:
         return None
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 
-    # Convert to ms deviation from nominal
-    nominal_ms = NTSC_FIELD_PERIOD * 1e3
-
+    # Convert to µs deviation from nominal
     dev1 = (data1.v_periods - NTSC_FIELD_PERIOD) * 1e6  # µs
     dev2 = (data2.v_periods - NTSC_FIELD_PERIOD) * 1e6
+
+    # Calculate shared Y-axis limits using both datasets
+    all_devs = np.concatenate([dev1, dev2])
+    y_min = np.percentile(all_devs, 0.5)
+    y_max = np.percentile(all_devs, 99.5)
+    padding = (y_max - y_min) * 0.1
+    y_limits = (y_min - padding, y_max + padding)
 
     fields1 = np.arange(len(dev1))
     fields2 = np.arange(len(dev2))
@@ -411,6 +443,8 @@ def create_field_stability_plot(data1: TimingData, data2: TimingData,
     ax1.axhline(0, color='red', linestyle='--', linewidth=0.5)
     ax1.set_ylabel('Field Period Deviation (µs)')
     ax1.set_title(f'{data1.label} - Field Timing Stability')
+    ax1.set_ylim(y_limits)
+    ax1.set_xlabel('Field Number')
     ax1.spines['top'].set_visible(False)
     ax1.spines['right'].set_visible(False)
 
@@ -419,6 +453,7 @@ def create_field_stability_plot(data1: TimingData, data2: TimingData,
     ax2.set_xlabel('Field Number')
     ax2.set_ylabel('Field Period Deviation (µs)')
     ax2.set_title(f'{data2.label} - Field Timing Stability')
+    ax2.set_ylim(y_limits)  # Same Y-axis limits as first plot
     ax2.spines['top'].set_visible(False)
     ax2.spines['right'].set_visible(False)
 
@@ -443,13 +478,18 @@ def generate_html_report(data1: TimingData, data2: TimingData,
     images = {}
 
     if HAS_MATPLOTLIB:
-        # Timing heatmaps
+        # Calculate shared X-axis range for heatmaps
+        h_range = get_h_deviation_range(data1, data2)
+
+        # Timing heatmaps with consistent X-axis
         img_path = os.path.join(image_dir, 'heatmap_1.png')
-        create_timing_heatmap(data1, img_path, f'{data1.label} - Line Timing Distribution')
+        create_timing_heatmap(data1, img_path, f'{data1.label} - Line Timing Distribution',
+                              x_range=h_range)
         images['heatmap_1'] = os.path.basename(img_path)
 
         img_path = os.path.join(image_dir, 'heatmap_2.png')
-        create_timing_heatmap(data2, img_path, f'{data2.label} - Line Timing Distribution')
+        create_timing_heatmap(data2, img_path, f'{data2.label} - Line Timing Distribution',
+                              x_range=h_range)
         images['heatmap_2'] = os.path.basename(img_path)
 
         # Histogram comparisons
