@@ -58,6 +58,23 @@ def run_cmd(args, check=True, capture=True, timeout=None):
         return None
 
 
+def has_connection_error(result):
+    """Check if rpsa_client result indicates a connection error.
+
+    rpsa_client returns exit code 0 even on connection failure,
+    so we must check stderr for error messages.
+    """
+    if result is None:
+        return True
+    if result.returncode != 0:
+        return True
+    if result.stderr and "Connection refused" in result.stderr:
+        return True
+    if result.stderr and "Error:" in result.stderr:
+        return True
+    return False
+
+
 def get_sample_rate(decimation):
     """Calculate sample rate from decimation factor."""
     return RP_BASE_CLOCK / decimation
@@ -129,7 +146,8 @@ def set_config(host, quiet=False, **kwargs):
             print(f"\nSetting {name}={value}...")
         args = [RPSA_CLIENT, "-c", "-h", host, "-i", f"{name}={value}", "-w"]
         result = run_cmd(args, check=False)
-        if result is None or result.returncode != 0:
+        # rpsa_client returns 0 even on failure - check stderr for errors
+        if has_connection_error(result):
             all_success = False
     return all_success
 
@@ -145,11 +163,18 @@ def get_config(host):
 
 
 def check_streaming_server(host):
-    """Check if Red Pitaya streaming server is running and responsive."""
+    """Check if Red Pitaya streaming server is running and responsive.
+
+    Note: rpsa_client returns exit code 0 even on connection failure,
+    so we must also check stderr for error messages.
+    """
     args = [RPSA_CLIENT, "-c", "-h", host, "-g", "V1"]
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=5)
-        return result.returncode == 0
+        # rpsa_client returns 0 even on failure - check stderr for errors
+        if has_connection_error(result):
+            return False
+        return True
     except:
         return False
 
