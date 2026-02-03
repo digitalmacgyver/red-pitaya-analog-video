@@ -429,6 +429,72 @@ def rename_output_files(output_dir, base_name, format_type, start_time):
     return renamed
 
 
+def check_capture_log(log_path):
+    """
+    Parse rpsa_client log file and check for data loss errors.
+
+    Returns:
+        tuple: (success: bool, errors: list of error messages, stats: dict)
+    """
+    errors = []
+    stats = {
+        'adc_speed': None,
+        'total_bytes': None,
+        'buffer_overflow_loss': None,
+        'memory_loss': None,
+        'fpga_loss': {},
+    }
+
+    if not os.path.exists(log_path):
+        return True, [], stats  # No log file, assume OK
+
+    try:
+        with open(log_path, 'r') as f:
+            content = f.read()
+
+        import re
+
+        # Parse ADC speed
+        match = re.search(r'Current ADC speed:\s*(\d+)', content)
+        if match:
+            stats['adc_speed'] = int(match.group(1))
+
+        # Parse total data transferred
+        match = re.search(r'Total amount of data transferred:.*?-(\d+)b\s', content, re.DOTALL)
+        if match:
+            stats['total_bytes'] = int(match.group(1))
+
+        # Check for buffer overflow loss
+        match = re.search(r'Lost data due to file write buffer overflow:\s*(\d+)', content)
+        if match:
+            loss = int(match.group(1))
+            stats['buffer_overflow_loss'] = loss
+            if loss > 0:
+                errors.append(f"Lost {loss} bytes due to file write buffer overflow")
+
+        # Check for memory loss
+        match = re.search(r'Loss of data due to lack of memory:\s*(\d+)', content)
+        if match:
+            loss = int(match.group(1))
+            stats['memory_loss'] = loss
+            if loss > 0:
+                errors.append(f"Lost {loss} bytes due to lack of memory")
+
+        # Check for FPGA loss on each channel
+        for match in re.finditer(r'Lost data on: Channel (\d+).*?FPGA:\s*(\d+)\s*Samples', content, re.DOTALL):
+            channel = int(match.group(1))
+            samples = int(match.group(2))
+            stats['fpga_loss'][channel] = samples
+            if samples > 0:
+                errors.append(f"Lost {samples} samples on Channel {channel} (FPGA)")
+
+        success = len(errors) == 0
+        return success, errors, stats
+
+    except Exception as e:
+        return True, [f"Warning: Could not parse log file: {e}"], stats
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Capture ADC data from Red Pitaya via network streaming",
@@ -621,6 +687,40 @@ Examples:
         renamed = rename_output_files(args.output_dir, args.name, args.format, capture_start_time)
         if not renamed:
             print("  No files were renamed (files may not have been created)")
+
+    # Check capture log for data loss errors
+    if args.name:
+        log_path = os.path.join(args.output_dir, f"{args.name}.{args.format}.log.txt")
+    else:
+        # Find the newest log file
+        try:
+            log_path = max(
+                [os.path.join(args.output_dir, f) for f in os.listdir(args.output_dir)
+                 if f.endswith(f'.{args.format}.log.txt')],
+                key=os.path.getmtime
+            )
+        except ValueError:
+            log_path = None
+
+    if log_path and os.path.exists(log_path):
+        print(f"\nChecking capture log...")
+        success, errors, stats = check_capture_log(log_path)
+
+        if stats['total_bytes']:
+            print(f"  Total data: {stats['total_bytes']:,} bytes ({stats['total_bytes']/1024/1024:.1f} MB)")
+        if stats['adc_speed']:
+            print(f"  ADC speed: {stats['adc_speed']:,} Hz")
+
+        if errors:
+            print("\n" + "!" * 60)
+            print("ERROR: DATA LOSS DETECTED!")
+            print("!" * 60)
+            for error in errors:
+                print(f"  - {error}")
+            print("\nThe capture may be incomplete or corrupted.")
+            print("Consider increasing adc_size or reducing capture duration.")
+        else:
+            print("  No data loss detected")
 
     # List output files (newest first)
     print(f"\nOutput files:")
