@@ -252,6 +252,12 @@ python adc_capture.py -d 30
 # Capture with specific output directory
 python adc_capture.py -d 30 -o /path/to/output
 
+# Capture with custom filename (outputs vhs_test.bin instead of auto-generated name)
+python adc_capture.py -d 30 -n vhs_test
+
+# Capture with both custom directory and filename
+python adc_capture.py -d 30 -o /path/to/output -n experiment1_source2
+
 # Show current configuration
 python adc_capture.py --config
 ```
@@ -339,6 +345,15 @@ python dac_stream.py --config
 - **Alignment:** Data must be multiple of 128 bytes
 - **Max size:** 4 GB per WAV file (~268 million samples)
 
+## Default Working Directory
+
+On this development machine, captures are typically saved to and read from:
+```
+/wintmp/analog_video/rpsa_client/output/
+```
+
+This path is machine-specific and should not be hardcoded in scripts or instructions intended for general use. Scripts use sensible defaults or require explicit paths.
+
 ## Current Status (2026-01-20)
 
 ### What Works
@@ -357,14 +372,14 @@ python dac_stream.py --config
 ### End-to-End Workflow (Recommended)
 
 ```bash
-# 1. Capture 30 seconds
-python adc_capture.py -d 30 -o /wintmp/analog_video/rpsa_client/output
+# 1. Capture 30 seconds with meaningful name
+python adc_capture.py -d 30 -n vhs_tape1_scene1
 
 # 2. Convert to WAV (no resampling for best quality)
-python resample_capture.py /path/to/capture.bin 15.625M -o playback.wav
+python resample_capture.py vhs_tape1_scene1.bin 15.625M -o vhs_tape1_scene1.wav
 
 # 3. Play back
-python dac_stream.py playback.wav --repeat inf
+python dac_stream.py vhs_tape1_scene1.wav --repeat inf
 ```
 
 ### Key Discoveries

@@ -229,6 +229,64 @@ def capture_streaming(host, output_dir, format_type, duration_sec, verbose=False
         return True
 
 
+def rename_output_files(output_dir, base_name, format_type, start_time):
+    """
+    Rename output files from auto-generated names to user-specified base name.
+
+    rpsa_client generates files like: data_file_192.168.0.6_2026-01-18_10-10-35.bin
+    This function renames them to: <base_name>.bin, <base_name>.log, etc.
+
+    Args:
+        output_dir: Directory containing the output files
+        base_name: User-specified base name for files
+        format_type: File format (bin, wav, csv, tdms)
+        start_time: Capture start time (to identify new files)
+
+    Returns:
+        dict mapping old filenames to new filenames
+    """
+    renamed = {}
+    extensions = [f'.{format_type}', '.log']  # rpsa_client creates data and log files
+
+    try:
+        # Find files created after start_time
+        for filename in os.listdir(output_dir):
+            filepath = os.path.join(output_dir, filename)
+            if not os.path.isfile(filepath):
+                continue
+
+            # Check if file was created after capture started
+            mtime = os.path.getmtime(filepath)
+            if mtime < start_time:
+                continue
+
+            # Check if this is one of our output files
+            for ext in extensions:
+                if filename.endswith(ext):
+                    new_filename = f"{base_name}{ext}"
+                    new_filepath = os.path.join(output_dir, new_filename)
+
+                    # Handle existing files
+                    if os.path.exists(new_filepath) and filepath != new_filepath:
+                        # Add timestamp suffix if target exists
+                        timestamp = datetime.now().strftime("%H%M%S")
+                        backup_name = f"{base_name}_{timestamp}{ext}"
+                        backup_path = os.path.join(output_dir, backup_name)
+                        os.rename(new_filepath, backup_path)
+                        print(f"  Moved existing {new_filename} to {backup_name}")
+
+                    if filepath != new_filepath:
+                        os.rename(filepath, new_filepath)
+                        renamed[filename] = new_filename
+                        print(f"  Renamed: {filename} -> {new_filename}")
+                    break
+
+    except Exception as e:
+        print(f"  Warning: Error renaming files: {e}")
+
+    return renamed
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Capture ADC data from Red Pitaya via network streaming",
@@ -258,6 +316,8 @@ Examples:
   %(prog)s                              # 2 seconds at 15.625 MS/s
   %(prog)s -d 5                         # 5 seconds
   %(prog)s -d 10 --decimation 16        # 10 seconds at 7.8 MS/s
+  %(prog)s -d 5 -n vhs_test1            # 5 seconds, named 'vhs_test1.bin'
+  %(prog)s -d 10 -o /tmp -n experiment  # To /tmp as 'experiment.bin'
   %(prog)s --stop                       # Stop any running capture
         """
     )
@@ -270,6 +330,9 @@ Examples:
                         default="bin", help="Output format (default: bin)")
     parser.add_argument("-o", "--output-dir", default=DEFAULT_OUTPUT_DIR,
                         help=f"Output directory (default: {DEFAULT_OUTPUT_DIR})")
+    parser.add_argument("-n", "--name", default=None,
+                        help="Base name for output files (e.g., 'experiment1_vhs_test'). "
+                             "Files will be renamed from auto-generated names after capture.")
     parser.add_argument("-H", "--host", default=DEFAULT_HOST,
                         help=f"Red Pitaya IP address (default: {DEFAULT_HOST})")
     parser.add_argument("--channel", type=int, choices=[1, 2], default=1,
@@ -397,6 +460,8 @@ Examples:
     print("Starting Capture...")
     print("-" * 60)
 
+    # Record start time for file identification (used for renaming)
+    capture_start_time = time.time()
     start_time = time.time()
 
     success = capture_streaming(
@@ -416,6 +481,13 @@ Examples:
     print(f"  Elapsed time: {elapsed:.1f} seconds")
     print(f"  Output directory: {args.output_dir}")
 
+    # Rename output files if --name was specified
+    if args.name:
+        print(f"\nRenaming output files to '{args.name}'...")
+        renamed = rename_output_files(args.output_dir, args.name, args.format, capture_start_time)
+        if not renamed:
+            print("  No files were renamed (files may not have been created)")
+
     # List output files (newest first)
     print(f"\nOutput files:")
     try:
@@ -433,17 +505,24 @@ Examples:
     except Exception as e:
         print(f"  Error listing files: {e}")
 
-    # Find the newest file for the hint
+    # Find the output file for the hint
     try:
-        newest = max(
-            [os.path.join(args.output_dir, f) for f in os.listdir(args.output_dir)
-             if f.endswith('.bin')],
-            key=os.path.getmtime
-        )
-        print(f"\nTo analyze the capture:")
-        print(f"  python analyze_bin.py {newest}")
-        print(f"\nTo resample for DAC playback:")
-        print(f"  python resample_capture.py {newest} 2fsc")
+        if args.name:
+            # Use the renamed file
+            output_file = os.path.join(args.output_dir, f"{args.name}.{args.format}")
+        else:
+            # Find the newest file
+            output_file = max(
+                [os.path.join(args.output_dir, f) for f in os.listdir(args.output_dir)
+                 if f.endswith(f'.{args.format}')],
+                key=os.path.getmtime
+            )
+
+        if os.path.exists(output_file):
+            print(f"\nTo analyze the capture:")
+            print(f"  python analyze_bin.py {output_file}")
+            print(f"\nTo resample for DAC playback:")
+            print(f"  python resample_capture.py {output_file} 15.625M")
     except:
         pass
 
