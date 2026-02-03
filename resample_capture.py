@@ -660,11 +660,17 @@ def resample_capture(input_path, target_rate, output_path=None,
         else:
             rate_str = f"{target_rate/1e6:.1f}M".replace('.0M', 'M')
 
+        # Sanitize rate string for filename (replace . with _)
+        rate_str_safe = rate_str.replace('.', '_')
+
         base = os.path.splitext(input_path)[0]
         if gain_db != 0:
-            output_path = f"{base}_{rate_str}_{gain_db:+.1f}dB.wav"
+            # Format gain for filename: remove +, replace . with _
+            # e.g., +5.7 -> 5_7, -3.0 -> -3_0
+            gain_str = f"{gain_db:.1f}".replace('.', '_').replace('+', '')
+            output_path = f"{base}_{rate_str_safe}_{gain_str}dB.wav"
         else:
-            output_path = f"{base}_{rate_str}.wav"
+            output_path = f"{base}_{rate_str_safe}.wav"
 
     # Detect header
     if header_size is None and skip_header:
