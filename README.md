@@ -15,18 +15,21 @@ Tools for recording and replaying CVBS (composite video) signals using a Red Pit
 ### 1. Capture (30 seconds of CVBS)
 
 ```bash
-# Capture 30 seconds at 15.625 MS/s (no UI required - uses SSH)
-python adc_capture.py -d 30 -o /path/to/output
+# Capture 30 seconds at 15.625 MS/s with meaningful filename
+python adc_capture.py -d 30 -n vhs_tape1
+
+# Or with custom output directory
+python adc_capture.py -d 30 -o /path/to/output -n vhs_tape1
 ```
 
 ### 2. Convert for Playback
 
 ```bash
 # Convert .bin to .wav (automatically strips block headers)
-python resample_capture.py /path/to/capture.bin 15.625M
+python resample_capture.py vhs_tape1.bin 15.625M
 
 # Or resample to a different rate
-python resample_capture.py /path/to/capture.bin 2fsc
+python resample_capture.py vhs_tape1.bin 2fsc
 ```
 
 `resample_capture.py` automatically detects .bin files with block headers and uses `convert_tool` to strip them before processing.
@@ -113,7 +116,7 @@ Command-line tool for ADC streaming capture. Auto-starts the streaming server vi
 ### Synopsis
 
 ```
-adc_capture.py [-d DURATION] [--decimation N] [-f FORMAT] [-o DIR] [OPTIONS]
+adc_capture.py [-d DURATION] [--decimation N] [-f FORMAT] [-o DIR] [-n NAME] [OPTIONS]
 ```
 
 ### Key Features
@@ -138,12 +141,15 @@ The script automatically sets:
 | `--decimation N` | Decimation factor (default: 8 = 15.625 MS/s) |
 | `-f, --format FMT` | Output format: bin, wav, csv, tdms (default: bin) |
 | `-o, --output-dir DIR` | Output directory |
+| `-n, --name NAME` | Base name for output files (renames from auto-generated names) |
+| `-H, --host IP` | Red Pitaya IP address (default: 192.168.0.6) |
 | `--channel {1,2}` | ADC channel (default: 1) |
 | `--resolution {8,16}` | Bits per sample (default: 8) |
 | `--no-ssh` | Don't auto-start server (use web UI instead) |
 | `--stop` | Stop any running capture |
 | `--kill-server` | Kill streaming server |
 | `--config` | Show current configuration |
+| `-v, --verbose` | Verbose output |
 
 ### Examples
 
@@ -153,6 +159,12 @@ python adc_capture.py
 
 # 30-second capture
 python adc_capture.py -d 30
+
+# Capture with custom filename (outputs vhs_test.bin instead of auto-generated name)
+python adc_capture.py -d 30 -n vhs_test
+
+# Capture with custom directory and filename
+python adc_capture.py -d 30 -o /path/to/output -n experiment1_source2
 
 # 60 seconds at lower rate (for slower network)
 python adc_capture.py -d 60 --decimation 16
@@ -268,12 +280,13 @@ dac_stream.py <wav_file> [--repeat N|inf] [--rate HZ] [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--repeat N` | Repeat count (default: 1, use `inf` for infinite) |
-| `--rate HZ` | Override DAC rate (default: from WAV file) |
+| `-n, --repeat N` | Repeat count (default: 1, use `inf` for infinite) |
+| `-r, --rate HZ` | Override DAC rate (default: from WAV file) |
 | `-H, --host IP` | Red Pitaya IP (default: 192.168.0.6) |
 | `--skip-restart` | Skip server restart for faster startup (see note below) |
 | `--stop` | Stop DAC and exit |
 | `--config` | Show current DAC configuration |
+| `-v, --verbose` | Verbose output |
 
 ### Fast Startup with --skip-restart
 
@@ -354,8 +367,7 @@ resample_capture.py <input.bin> <target_rate> [-o output.wav] [OPTIONS]
 | `--original-rate RATE` | Source sample rate (default: 15.625M) |
 | `--gain DB` | Apply gain in dB (e.g., 5.7 for pad compensation) |
 | `--center` | Center signal at 0V before gain (maximizes headroom) |
-| `--header N` | Manual header size in bytes |
-| `--no-skip-header` | Don't auto-detect/skip file header |
+| `--no-convert-tool` | Don't use convert_tool for header stripping (use fallback) |
 
 ### Examples
 

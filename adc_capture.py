@@ -13,6 +13,7 @@ Examples:
     python adc_capture.py -d 5                      # Capture 5 seconds
     python adc_capture.py -d 10 --decimation 16     # 10 seconds at dec=16
     python adc_capture.py -d 3 -o /tmp/captures     # Save to specific directory
+    python adc_capture.py -d 30 -n vhs_test         # Capture with custom filename
 """
 
 import argparse
