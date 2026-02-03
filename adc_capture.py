@@ -117,12 +117,21 @@ def stop_streaming_server_ssh(host):
         pass
 
 
-def set_config(host, **kwargs):
-    """Set configuration values on Red Pitaya."""
+def set_config(host, quiet=False, **kwargs):
+    """Set configuration values on Red Pitaya.
+
+    Returns:
+        True if all settings succeeded, False if any failed.
+    """
+    all_success = True
     for name, value in kwargs.items():
-        print(f"\nSetting {name}={value}...")
+        if not quiet:
+            print(f"\nSetting {name}={value}...")
         args = [RPSA_CLIENT, "-c", "-h", host, "-i", f"{name}={value}", "-w"]
-        run_cmd(args, check=False)
+        result = run_cmd(args, check=False)
+        if result is None or result.returncode != 0:
+            all_success = False
+    return all_success
 
 
 def get_config(host):
@@ -143,6 +152,81 @@ def check_streaming_server(host):
         return result.returncode == 0
     except:
         return False
+
+
+def configure_streaming(host, decimation, resolution, channel):
+    """
+    Configure the Red Pitaya streaming server with all required settings.
+
+    Returns:
+        True if all configuration succeeded, False otherwise.
+    """
+    success = True
+
+    # CRITICAL: Set buffer sizes to prevent DMA glitches
+    print("\nSetting memory configuration (prevents DMA glitches)...")
+    success &= set_config(host, block_size=BLOCK_SIZE)
+    success &= set_config(host, adc_size=ADC_SIZE)
+    success &= set_config(host, dac_size=SMALL_SIZE)  # Reduce unused DAC buffer
+
+    # Set streaming mode to network
+    success &= set_config(host, adc_pass_mode="NET")
+
+    # Set decimation
+    success &= set_config(host, adc_decimation=decimation)
+
+    # Set resolution
+    resolution_str = "BIT_8" if resolution == "8" else "BIT_16"
+    success &= set_config(host, resolution=resolution_str)
+
+    # Enable the selected channel, disable the other
+    ch1_state = "ON" if channel == 1 else "OFF"
+    ch2_state = "ON" if channel == 2 else "OFF"
+    success &= set_config(host, channel_state_1=ch1_state, channel_state_2=ch2_state)
+
+    return success
+
+
+def ensure_server_and_configure(host, decimation, resolution, channel, use_ssh=True, max_retries=2):
+    """
+    Ensure streaming server is running and configured, with automatic retry.
+
+    If configuration fails (e.g., server died), this function will:
+    1. Restart the streaming server
+    2. Retry the configuration
+
+    Args:
+        host: Red Pitaya IP address
+        decimation: ADC decimation factor
+        resolution: "8" or "16" bit
+        channel: 1 or 2
+        use_ssh: Whether to use SSH to restart server
+        max_retries: Maximum number of retry attempts
+
+    Returns:
+        True if server is running and configured, False otherwise.
+    """
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            print(f"\n*** Configuration failed, restarting server (attempt {attempt + 1}/{max_retries + 1}) ***")
+            if use_ssh:
+                stop_streaming_server_ssh(host)
+                time.sleep(1)
+                if not start_streaming_server_ssh(host):
+                    print("  Failed to restart server")
+                    continue
+                time.sleep(1)
+            else:
+                print("  Cannot restart server (--no-ssh specified)")
+                return False
+
+        # Attempt configuration
+        if configure_streaming(host, decimation, resolution, channel):
+            if attempt > 0:
+                print("  Configuration succeeded after restart")
+            return True
+
+    return False
 
 
 def stop_streaming(host):
@@ -427,31 +511,23 @@ Examples:
     print(f"  Output format: {args.format}")
     print(f"  Output directory: {args.output_dir}")
 
-    # Configure Red Pitaya
+    # Configure Red Pitaya (with automatic retry if server dies)
     print("\n" + "-" * 60)
     print("Configuring Red Pitaya...")
     print("-" * 60)
 
-    # CRITICAL: Set buffer sizes to prevent DMA glitches
-    print("\nSetting memory configuration (prevents DMA glitches)...")
-    set_config(args.host, block_size=BLOCK_SIZE)
-    set_config(args.host, adc_size=ADC_SIZE)
-    set_config(args.host, dac_size=SMALL_SIZE)  # Reduce unused DAC buffer
-
-    # Set streaming mode to network
-    set_config(args.host, adc_pass_mode="NET")
-
-    # Set decimation
-    set_config(args.host, adc_decimation=args.decimation)
-
-    # Set resolution
-    resolution_str = "BIT_8" if args.resolution == "8" else "BIT_16"
-    set_config(args.host, resolution=resolution_str)
-
-    # Enable the selected channel, disable the other
-    ch1_state = "ON" if args.channel == 1 else "OFF"
-    ch2_state = "ON" if args.channel == 2 else "OFF"
-    set_config(args.host, channel_state_1=ch1_state, channel_state_2=ch2_state)
+    if not ensure_server_and_configure(
+        args.host,
+        args.decimation,
+        args.resolution,
+        args.channel,
+        use_ssh=not args.no_ssh
+    ):
+        print("\nError: Failed to configure Red Pitaya after multiple attempts")
+        print("Try manually restarting the streaming server:")
+        print(f"  python adc_capture.py --kill-server -H {args.host}")
+        print(f"  python adc_capture.py -d {args.duration} ...")
+        sys.exit(1)
 
     # Small delay for config to settle
     time.sleep(0.5)
