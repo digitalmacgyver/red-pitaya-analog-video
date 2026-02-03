@@ -362,8 +362,15 @@ def rename_output_files(output_dir, base_name, format_type, start_time):
     """
     Rename output files from auto-generated names to user-specified base name.
 
-    rpsa_client generates files like: data_file_192.168.0.6_2026-01-18_10-10-35.bin
-    This function renames them to: <base_name>.bin, <base_name>.log, etc.
+    rpsa_client generates files like:
+        data_file_192.168.0.6_2026-01-18_10-10-35.bin
+        data_file_192.168.0.6_2026-01-18_10-10-35.bin.log.txt
+        data_file_192.168.0.6_2026-01-18_10-10-35.bin.log.lost.txt
+
+    This function renames them to:
+        <base_name>.bin
+        <base_name>.bin.log.txt
+        <base_name>.bin.log.lost.txt
 
     Args:
         output_dir: Directory containing the output files
@@ -375,7 +382,13 @@ def rename_output_files(output_dir, base_name, format_type, start_time):
         dict mapping old filenames to new filenames
     """
     renamed = {}
-    extensions = [f'.{format_type}', '.log']  # rpsa_client creates data and log files
+    # rpsa_client creates data file and associated log files
+    # Check longer extensions first to avoid partial matches
+    extensions = [
+        f'.{format_type}.log.lost.txt',  # Lost packet log
+        f'.{format_type}.log.txt',        # Main log
+        f'.{format_type}',                # Data file
+    ]
 
     try:
         # Find files created after start_time
