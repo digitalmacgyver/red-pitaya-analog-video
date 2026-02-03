@@ -95,16 +95,17 @@ def start_streaming_server_ssh(host):
     print(f"\nStarting streaming server via SSH...")
 
     # Command to start streaming server with FPGA overlay
+    # Use nohup and redirect output to ensure SSH returns promptly
     ssh_cmd = [
         "ssh", f"root@{host}",
         "cd /opt/redpitaya/bin && "
         "LD_LIBRARY_PATH=/opt/redpitaya/lib /opt/redpitaya/sbin/overlay.sh stream_app && "
         "sleep 1 && "
-        "LD_LIBRARY_PATH=/opt/redpitaya/lib ./streaming-server -v &"
+        "LD_LIBRARY_PATH=/opt/redpitaya/lib nohup ./streaming-server -v > /tmp/streaming.log 2>&1 &"
     ]
 
     try:
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
         # Give server time to initialize
         time.sleep(2)
 
@@ -117,7 +118,25 @@ def start_streaming_server_ssh(host):
             return True
         else:
             print(f"  Warning: Could not verify server started")
+            # Check if there's an error in the log
+            log_cmd = ["ssh", f"root@{host}", "tail -5 /tmp/streaming.log 2>/dev/null"]
+            log_result = subprocess.run(log_cmd, capture_output=True, text=True, timeout=5)
+            if log_result.stdout:
+                print(f"  Server log: {log_result.stdout.strip()}")
             return False
+    except subprocess.TimeoutExpired:
+        print(f"  Timeout starting server (overlay.sh may be slow)")
+        # Check if server started despite timeout
+        time.sleep(2)
+        check_cmd = ["ssh", f"root@{host}", "pgrep -f streaming-server"]
+        try:
+            check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+            if check_result.returncode == 0:
+                print(f"  Server started successfully (after timeout)")
+                return True
+        except:
+            pass
+        return False
     except Exception as e:
         print(f"  Error starting server via SSH: {e}")
         return False
