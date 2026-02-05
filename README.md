@@ -149,7 +149,32 @@ The script automatically sets:
 | `--stop` | Stop any running capture |
 | `--kill-server` | Kill streaming server |
 | `--config` | Show current configuration |
+| `--skip-restart` | Skip memory buffer configuration for faster startup (see below) |
 | `-v, --verbose` | Verbose output |
+
+### Fast Startup with --skip-restart
+
+By default, `adc_capture.py` configures memory buffer sizes (`block_size`, `adc_size`, `dac_size`) on each run. This is necessary because the Red Pitaya streaming server reads these settings on startup.
+
+For repeat captures where the server is already configured correctly, use `--skip-restart` to skip memory configuration and start faster:
+
+```bash
+# First capture: full configuration
+python adc_capture.py -d 30 -n capture1
+
+# Subsequent captures: fast startup (skips memory config)
+python adc_capture.py -d 30 -n capture2 --skip-restart
+```
+
+**Use `--skip-restart` when:**
+- You've already run `adc_capture.py` recently (server is configured)
+- You're doing repeated test captures
+- You want faster startup time
+
+**Don't use `--skip-restart` when:**
+- First run after Red Pitaya reboot
+- After using other streaming applications
+- If previous capture had buffer overflow errors (glitches every ~65K samples)
 
 ### Examples
 

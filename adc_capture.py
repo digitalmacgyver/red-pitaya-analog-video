@@ -198,20 +198,28 @@ def check_streaming_server(host):
         return False
 
 
-def configure_streaming(host, decimation, resolution, channel):
+def configure_streaming(host, decimation, resolution, channel, skip_memory=False):
     """
     Configure the Red Pitaya streaming server with all required settings.
+
+    Args:
+        host: Red Pitaya IP address
+        decimation: ADC decimation factor
+        resolution: "8" or "16" bit
+        channel: 1 or 2
+        skip_memory: If True, skip memory buffer configuration (for faster startup)
 
     Returns:
         True if all configuration succeeded, False otherwise.
     """
     success = True
 
-    # CRITICAL: Set buffer sizes to prevent DMA glitches
-    print("\nSetting memory configuration (prevents DMA glitches)...")
-    success &= set_config(host, block_size=BLOCK_SIZE)
-    success &= set_config(host, adc_size=ADC_SIZE)
-    success &= set_config(host, dac_size=SMALL_SIZE)  # Reduce unused DAC buffer
+    if not skip_memory:
+        # CRITICAL: Set buffer sizes to prevent DMA glitches
+        print("\nSetting memory configuration (prevents DMA glitches)...")
+        success &= set_config(host, block_size=BLOCK_SIZE)
+        success &= set_config(host, adc_size=ADC_SIZE)
+        success &= set_config(host, dac_size=SMALL_SIZE)  # Reduce unused DAC buffer
 
     # Set streaming mode to network
     success &= set_config(host, adc_pass_mode="NET")
@@ -231,7 +239,7 @@ def configure_streaming(host, decimation, resolution, channel):
     return success
 
 
-def ensure_server_and_configure(host, decimation, resolution, channel, use_ssh=True, max_retries=2):
+def ensure_server_and_configure(host, decimation, resolution, channel, use_ssh=True, max_retries=2, skip_memory=False):
     """
     Ensure streaming server is running and configured, with automatic retry.
 
@@ -246,6 +254,7 @@ def ensure_server_and_configure(host, decimation, resolution, channel, use_ssh=T
         channel: 1 or 2
         use_ssh: Whether to use SSH to restart server
         max_retries: Maximum number of retry attempts
+        skip_memory: If True, skip memory buffer configuration (for faster startup)
 
     Returns:
         True if server is running and configured, False otherwise.
@@ -265,7 +274,7 @@ def ensure_server_and_configure(host, decimation, resolution, channel, use_ssh=T
                 return False
 
         # Attempt configuration
-        if configure_streaming(host, decimation, resolution, channel):
+        if configure_streaming(host, decimation, resolution, channel, skip_memory=skip_memory):
             if attempt > 0:
                 print("  Configuration succeeded after restart")
             return True
@@ -555,6 +564,10 @@ Examples:
                         help="Kill streaming server and exit")
     parser.add_argument("--config", action="store_true",
                         help="Show current configuration and exit")
+    parser.add_argument("--skip-restart", action="store_true",
+                        help="Skip memory buffer configuration for faster startup. "
+                             "Use when server is already configured correctly from a previous run. "
+                             "Don't use after reboot or if previous capture had buffer errors.")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Verbose output")
 
@@ -639,12 +652,17 @@ Examples:
     print("Configuring Red Pitaya...")
     print("-" * 60)
 
+    if args.skip_restart:
+        print("\n--skip-restart: Skipping memory buffer configuration")
+        print("  (Assuming block_size, adc_size, dac_size are already correct)")
+
     if not ensure_server_and_configure(
         args.host,
         args.decimation,
         args.resolution,
         args.channel,
-        use_ssh=not args.no_ssh
+        use_ssh=not args.no_ssh,
+        skip_memory=args.skip_restart
     ):
         print("\nError: Failed to configure Red Pitaya after multiple attempts")
         print("Try manually restarting the streaming server:")
