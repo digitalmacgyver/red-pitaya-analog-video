@@ -26,6 +26,9 @@ __pycache__/
 .vscode/
 .idea/
 
+# Firecrawl cache
+.firecrawl/
+
 # Red Pitaya streaming client (downloaded binaries, keep README)
 rp_streaming/*
 !rp_streaming/README.md

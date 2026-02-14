@@ -69,7 +69,37 @@ artificially inflating timing variance statistics.
 
 ### generate_timing_report.py
 
-Generates a comprehensive HTML timing comparison report.
+Generates a comprehensive HTML timing comparison report for N sources.
+
+#### Basic Usage (Stack Ranking Mode)
+
+Compare N sources, ranked by timing stability:
+
+```bash
+# Compare 2 sources
+python timing/generate_timing_report.py \
+    file1.csv file2.csv \
+    -o report.html
+
+# Compare 3+ sources
+python timing/generate_timing_report.py \
+    leitch.csv redpitaya.csv vhs_tbc.csv \
+    --labels "Leitch,Red Pitaya,VHS TBC" \
+    -o report.html
+```
+
+#### Reference Mode
+
+Compare against a reference source (reference excluded from ranking):
+
+```bash
+python timing/generate_timing_report.py \
+    --reference leitch.csv \
+    redpitaya.csv vhs_tbc.csv \
+    -o report.html
+```
+
+#### Legacy Syntax (Backward Compatible)
 
 ```bash
 python timing/generate_timing_report.py \
@@ -82,13 +112,43 @@ python timing/generate_timing_report.py \
 
 | Option | Description |
 |--------|-------------|
-| `--capture1 FILE` | First capture file (typically reference/known-good) |
-| `--capture2 FILE` | Second capture file (device under test) |
+| `FILE ...` | Capture files to compare (positional arguments) |
+| `--reference FILE` | Reference capture file (compare others against this) |
+| `--labels LABELS` | Comma-separated labels for captures (in order) |
 | `--output FILE` | Output HTML report path |
-| `--label1 NAME` | Label for capture 1 (default: filename) |
-| `--label2 NAME` | Label for capture 2 (default: filename) |
 | `--skip-fields N` | Fields to skip at start/end (default: 16) |
 | `--sample-rate N` | Logic analyzer sample rate in MS/s (default: 20.0) |
+| `--no-validity-filter` | Disable signal validity detection (see below) |
+| `--capture1 FILE` | (Legacy) First capture file |
+| `--capture2 FILE` | (Legacy) Second capture file |
+| `--label1 NAME` | (Legacy) Label for capture 1 |
+| `--label2 NAME` | (Legacy) Label for capture 2 |
+
+#### Ranking Criteria
+
+Sources are ranked by:
+1. **Primary:** Valid signal proportion (higher is better)
+2. **Secondary (in appendices):** H/V period deviation from NTSC nominal (lower is better)
+
+#### Signal Validity Filtering
+
+When no CVBS signal is present, the LM1881/LM1980 sync separator free-runs,
+producing rapid oscillation (H periods of 1–25 µs instead of ~63.5 µs, V rates
+of thousands/sec instead of ~60 Hz). By default, the report automatically detects
+and excludes these regions so they don't pollute timing statistics.
+
+The detection algorithm uses a sliding-window density test: a region is considered
+valid if at least 90% of H periods within a 200-period window fall in the
+plausible range (0.4×–1.6× NTSC nominal). This tolerates sparse bad sync pulses
+(e.g. VHS dropout causing 1-in-50 missed pulses) without falsely rejecting the
+signal. Valid regions are further cross-validated against V event rates.
+
+The report includes a **Signal Presence** section showing valid/invalid duration,
+a timeline visualization, and a table of valid intervals.
+
+Use `--no-validity-filter` to disable this and include all data as-is. This
+reproduces the legacy behavior before validity filtering was added, which is
+useful for debugging or when you want to see the raw unfiltered statistics.
 
 #### Data Trimming
 
@@ -99,20 +159,30 @@ transient effects at recording start/stop. This is configurable via `--skip-fiel
 
 The report includes:
 
-1. **Summary Statistics Table**
-   - Median, mean, std dev for H and V timing
-   - Percentiles (1, 5, 25, 50, 75, 95, 99)
-   - Min/max values
+1. **Summary Ranking Table** (at top)
+   - All sources ranked by valid signal proportion
+   - Shows H deviation and V deviation for each source
 
-2. **Jitter Metrics**
-   - RMS jitter
-   - Peak-to-peak jitter
-   - Time Interval Error (TIE) distribution
+2. **Signal Presence**
+   - Valid/invalid signal duration and percentage for all N sources
+   - Timeline visualization (green=valid, pink=invalid) for all sources
+   - Table of valid signal intervals
 
-3. **Visualizations**
-   - Line-by-line timing distribution (heatmap/density plot)
-   - Timing deviation histogram
-   - Field-to-field stability plot
+3. **Horizontal Timing Section**
+   - Statistics table with N columns (one per source)
+   - Histogram overlay (up to 5 sources)
+   - Line-by-line heatmaps in grid layout
+
+4. **Vertical Timing Section**
+   - Statistics table with N columns
+   - Histogram overlay
+   - Field-to-field stability plots
+
+5. **Appendix A: Horizontal Timing Rankings**
+   - Sources ranked by H deviation from nominal
+
+6. **Appendix B: Vertical Timing Rankings**
+   - Sources ranked by V deviation from nominal
 
 ## Metrics Definitions
 
@@ -157,7 +227,20 @@ Red Pitaya uses ping-pong DMA buffering. At streaming rates exceeding the docume
 ## Example Workflow
 
 ```bash
-# Compare Leitch signal generator to Red Pitaya playback
+# Compare 2 sources (new syntax)
+python timing/generate_timing_report.py \
+    from_leitch.csv from_red_pitaya.csv \
+    --labels "Leitch Generator,Red Pitaya" \
+    -o timing_comparison.html
+
+# Compare 3 sources with a reference
+python timing/generate_timing_report.py \
+    --reference from_leitch.csv \
+    from_red_pitaya.csv from_vhs_tbc.csv \
+    --labels "Leitch,Red Pitaya,VHS TBC" \
+    -o timing_comparison.html
+
+# Legacy 2-source syntax (still supported)
 python timing/generate_timing_report.py \
     --capture1 from_leitch.csv \
     --capture2 from_red_pitaya.csv \

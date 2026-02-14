@@ -6,7 +6,7 @@
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
             line-height: 1.6;
@@ -24,7 +24,7 @@
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 12px;
+            padding: 10px;
             text-align: right;
         }
         th {
@@ -43,6 +43,12 @@
             padding: 15px;
             margin: 20px 0;
         }
+        .ranking-box {
+            background: #fff9e6;
+            border-left: 4px solid #f4c430;
+            padding: 15px;
+            margin: 20px 0;
+        }
         .image-container {
             margin: 20px 0;
             text-align: center;
@@ -53,7 +59,7 @@
         }
         .comparison-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(2, 1fr);
             gap: 20px;
         }
         @media (max-width: 800px) {
@@ -68,18 +74,89 @@
             padding-top: 20px;
             border-top: 1px solid #eee;
         }
+        details {
+            margin: 10px 0;
+        }
+        summary {
+            cursor: pointer;
+            font-weight: bold;
+            padding: 5px;
+        }
     </style>
 </head>
 <body>
     <h1>Video Timing Comparison Report</h1>
 
     <div class="summary-box">
-        <strong>Captures Compared:</strong><br>
-        <strong>1.</strong> Leitch Generator (1.12s, 17,587 lines, 67 fields)<br>
-        <strong>2.</strong> Red Pitaya (1.12s, 17,587 lines, 67 fields)<br>
+        <strong>Mode:</strong> Stack Ranking Mode<br>
+        <strong>Captures Compared (2):</strong><br>
+        <strong>1.</strong> leitch_sample (1.12s, 17,587 lines, 66 fields)<br>
+        <strong>2.</strong> redpitaya_sample (1.12s, 17,587 lines, 66 fields)<br>
         <br>
-        <strong>Analysis Settings:</strong> First and last 16 fields trimmed from each capture.
+        <strong>Analysis Settings:</strong> First and last 16 fields trimmed from each capture. Signal validity filtering applied.
     </div>
+
+    <h2>Summary Ranking</h2>
+
+    <div class="ranking-box">
+        <p>Sources ranked by valid signal proportion (higher is better).</p>
+    </div>
+
+    <table>
+        <tr>
+            <th>Rank</th>
+            <th>Source</th>
+            <th>Valid Signal %</th>
+            <th>H Deviation</th>
+            <th>V Deviation</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>redpitaya_sample</td>
+            <td>100.0%</td>
+            <td>0.0007 µs</td>
+            <td>0.0002 ms</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>leitch_sample</td>
+            <td>100.0%</td>
+            <td>0.0001 µs</td>
+            <td>0.0000 ms</td>
+        </tr>
+    </table>
+
+    <h2>Signal Presence</h2>
+
+    <div class="summary-box">
+        <strong>Signal validity detection</strong> identifies regions where the sync separator
+        is receiving a valid CVBS signal vs. free-running oscillation (no signal input).
+        Only valid-signal regions are included in timing statistics below.
+    </div>
+
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>leitch_sample</th><th>redpitaya_sample</th>
+        </tr>
+        <tr><td>Total Duration (after trim)</td><td>1.12 s</td><td>1.12 s</td></tr>
+        <tr><td>Valid Signal Duration</td><td>1.12 s (100.0%)</td><td>1.12 s (100.0%)</td></tr>
+        <tr><td>Invalid/Absent Signal</td><td>0.00 s</td><td>0.00 s</td></tr>
+        <tr><td>Valid Regions</td><td>1</td><td>1</td></tr>
+        <tr><td>H Periods (raw → filtered)</td><td>17,587 → 17,587</td><td>17,587 → 17,587</td></tr>
+        <tr><td>V Periods (raw → filtered)</td><td>67 → 66</td><td>67 → 66</td></tr>
+    </table>
+
+        <div class='image-container'><img src='example_report_images/signal_timeline.png' alt='Signal Validity Timeline'></div>
+
+    <details>
+    <summary>Valid Signal Intervals</summary>
+    <table>
+        <tr><th>Capture</th><th>#</th><th>Start</th><th>End</th><th>Duration</th></tr>
+        <tr><td>leitch_sample</td><td>1</td><td>0.000 s</td><td>1.118 s</td><td>1.118 s</td></tr>
+        <tr><td>redpitaya_sample</td><td>1</td><td>0.000 s</td><td>1.118 s</td><td>1.118 s</td></tr>
+    </table>
+    </details>
 
     <h2>Horizontal Timing (Line Period)</h2>
 
@@ -88,100 +165,24 @@
     <table>
         <tr>
             <th>Metric</th>
-            <th>Leitch Generator</th>
-            <th>Red Pitaya</th>
+            <th>leitch_sample</th><th>redpitaya_sample</th>
             <th>NTSC Nominal</th>
         </tr>
-        <tr>
-            <td>Median</td>
-            <td>63.5500 µs</td>
-            <td>63.5500 µs</td>
-            <td>63.5556 µs</td>
-        </tr>
-        <tr>
-            <td>Mean</td>
-            <td>63.5555 µs</td>
-            <td>63.5562 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Std Dev</td>
-            <td><71 ns*</td>
-            <td>87.35 ns</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>RMS Jitter</td>
-            <td><71 ns*</td>
-            <td>87.57 ns</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Peak-to-Peak Jitter</td>
-            <td><141 ns*</td>
-            <td>8000.00 ns</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Min</td>
-            <td>63.5000 µs</td>
-            <td>63.5000 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Max</td>
-            <td>63.6000 µs</td>
-            <td>71.5000 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>1st Percentile</td>
-            <td>63.5500 µs</td>
-            <td>63.5000 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>5th Percentile</td>
-            <td>63.5500 µs</td>
-            <td>63.5500 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>25th Percentile</td>
-            <td>63.5500 µs</td>
-            <td>63.5500 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>50th Percentile</td>
-            <td>63.5500 µs</td>
-            <td>63.5500 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>75th Percentile</td>
-            <td>63.5500 µs</td>
-            <td>63.5500 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>95th Percentile</td>
-            <td>63.6000 µs</td>
-            <td>63.6000 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>99th Percentile</td>
-            <td>63.6000 µs</td>
-            <td>63.6000 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Sample Count</td>
-            <td>17,587</td>
-            <td>17,587</td>
-            <td>—</td>
-        </tr>
+        <tr><td>Median</td><td>63.5500 µs</td><td>63.5500 µs</td><td>63.5556 µs</td></tr>
+        <tr><td>Mean</td><td>63.5555 µs</td><td>63.5562 µs</td><td>—</td></tr>
+        <tr><td>Std Dev</td><td><71 ns*</td><td>87.35 ns</td><td>—</td></tr>
+        <tr><td>RMS Jitter</td><td><71 ns*</td><td>87.57 ns</td><td>—</td></tr>
+        <tr><td>Peak-to-Peak Jitter</td><td><141 ns*</td><td>8000.00 ns</td><td>—</td></tr>
+        <tr><td>Min</td><td>63.5000 µs</td><td>63.5000 µs</td><td>—</td></tr>
+        <tr><td>Max</td><td>63.6000 µs</td><td>71.5000 µs</td><td>—</td></tr>
+        <tr><td>1st Percentile</td><td>63.5500 µs</td><td>63.5000 µs</td><td>—</td></tr>
+        <tr><td>5th Percentile</td><td>63.5500 µs</td><td>63.5500 µs</td><td>—</td></tr>
+        <tr><td>25th Percentile</td><td>63.5500 µs</td><td>63.5500 µs</td><td>—</td></tr>
+        <tr><td>50th Percentile</td><td>63.5500 µs</td><td>63.5500 µs</td><td>—</td></tr>
+        <tr><td>75th Percentile</td><td>63.5500 µs</td><td>63.5500 µs</td><td>—</td></tr>
+        <tr><td>95th Percentile</td><td>63.6000 µs</td><td>63.6000 µs</td><td>—</td></tr>
+        <tr><td>99th Percentile</td><td>63.6000 µs</td><td>63.6000 µs</td><td>—</td></tr>
+        <tr><td>Sample Count</td><td>17,587</td><td>17,587</td><td>—</td></tr>
     </table>
 
     <p><em>* Values marked with asterisk are below the measurement noise floor (~71 ns) and cannot be reliably distinguished from zero.</em></p>
@@ -190,15 +191,16 @@
     <div class='image-container'><img src='example_report_images/hist_horizontal.png' alt='Horizontal Histogram'></div>
 
     <h3>Line-by-Line Timing Distribution</h3>
-    <p>Each row shows the timing distribution for that line number within a field.
-    The thin gray line shows full range (min-max), blue shows 5th-95th percentile,
-    thick blue shows interquartile range (25th-75th), and the dot marks the median.
-    The red dashed line indicates zero deviation from nominal.</p>
+    <p>Each row shows the timing distribution for that line number within a field as a histogram
+    (bin width: 48 ns, sample period: 50 ns).
+    Darker regions indicate more measurements at that deviation.
+    The red dashed line indicates zero deviation from nominal. Blue edge shading indicates clipped outliers.</p>
 
     <div class="comparison-grid">
-        <div class='image-container'><img src='example_report_images/heatmap_1.png' alt='Heatmap 1'></div>
-        <div class='image-container'><img src='example_report_images/heatmap_2.png' alt='Heatmap 2'></div>
+        <div class='image-container'><img src='example_report_images/heatmap_1.png' alt='leitch_sample Heatmap'></div>
+        <div class='image-container'><img src='example_report_images/heatmap_2.png' alt='redpitaya_sample Heatmap'></div>
     </div>
+    
 
     <h2>Vertical Timing (Field Period)</h2>
 
@@ -207,100 +209,24 @@
     <table>
         <tr>
             <th>Metric</th>
-            <th>Leitch Generator</th>
-            <th>Red Pitaya</th>
+            <th>leitch_sample</th><th>redpitaya_sample</th>
             <th>NTSC Nominal</th>
         </tr>
-        <tr>
-            <td>Median</td>
-            <td>16.6833 ms</td>
-            <td>16.6833 ms</td>
-            <td>16.6834 ms</td>
-        </tr>
-        <tr>
-            <td>Mean</td>
-            <td>16.6833 ms</td>
-            <td>16.6835 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Std Dev</td>
-            <td><0.07 µs*</td>
-            <td>1.35 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>RMS Jitter</td>
-            <td><0.07 µs*</td>
-            <td>1.37 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Peak-to-Peak Jitter</td>
-            <td><0.14 µs*</td>
-            <td>7.95 µs</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Min</td>
-            <td>16.6833 ms</td>
-            <td>16.6832 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Max</td>
-            <td>16.6833 ms</td>
-            <td>16.6912 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>1st Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6832 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>5th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6832 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>25th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6833 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>50th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6833 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>75th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6833 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>95th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6833 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>99th Percentile</td>
-            <td>16.6833 ms</td>
-            <td>16.6912 ms</td>
-            <td>—</td>
-        </tr>
-        <tr>
-            <td>Sample Count</td>
-            <td>67</td>
-            <td>67</td>
-            <td>—</td>
-        </tr>
+        <tr><td>Median</td><td>16.6833 ms</td><td>16.6833 ms</td><td>16.6834 ms</td></tr>
+        <tr><td>Mean</td><td>16.6833 ms</td><td>16.6835 ms</td><td>—</td></tr>
+        <tr><td>Std Dev</td><td><0.07 µs*</td><td>1.36 µs</td><td>—</td></tr>
+        <tr><td>RMS Jitter</td><td><0.07 µs*</td><td>1.38 µs</td><td>—</td></tr>
+        <tr><td>Peak-to-Peak Jitter</td><td><0.14 µs*</td><td>7.95 µs</td><td>—</td></tr>
+        <tr><td>Min</td><td>16.6833 ms</td><td>16.6832 ms</td><td>—</td></tr>
+        <tr><td>Max</td><td>16.6833 ms</td><td>16.6912 ms</td><td>—</td></tr>
+        <tr><td>1st Percentile</td><td>16.6833 ms</td><td>16.6832 ms</td><td>—</td></tr>
+        <tr><td>5th Percentile</td><td>16.6833 ms</td><td>16.6832 ms</td><td>—</td></tr>
+        <tr><td>25th Percentile</td><td>16.6833 ms</td><td>16.6833 ms</td><td>—</td></tr>
+        <tr><td>50th Percentile</td><td>16.6833 ms</td><td>16.6833 ms</td><td>—</td></tr>
+        <tr><td>75th Percentile</td><td>16.6833 ms</td><td>16.6833 ms</td><td>—</td></tr>
+        <tr><td>95th Percentile</td><td>16.6833 ms</td><td>16.6833 ms</td><td>—</td></tr>
+        <tr><td>99th Percentile</td><td>16.6833 ms</td><td>16.6912 ms</td><td>—</td></tr>
+        <tr><td>Sample Count</td><td>66</td><td>66</td><td>—</td></tr>
     </table>
 
     <p><em>* Values marked with asterisk are below the measurement noise floor (~71 ns) and cannot be reliably distinguished from zero.</em></p>
@@ -318,24 +244,11 @@
     <table>
         <tr>
             <th>Metric</th>
-            <th>Leitch Generator</th>
-            <th>Red Pitaya</th>
+            <th>leitch_sample</th><th>redpitaya_sample</th>
         </tr>
-        <tr>
-            <td>Mean Lines/Field</td>
-            <td>262.49</td>
-            <td>262.49</td>
-        </tr>
-        <tr>
-            <td>Min</td>
-            <td>262</td>
-            <td>262</td>
-        </tr>
-        <tr>
-            <td>Max</td>
-            <td>263</td>
-            <td>263</td>
-        </tr>
+        <tr><td>Mean Lines/Field</td><td>262.50</td><td>262.50</td></tr>
+        <tr><td>Min</td><td>262</td><td>262</td></tr>
+        <tr><td>Max</td><td>263</td><td>263</td></tr>
     </table>
 
     <h2>Measurement Uncertainty</h2>
@@ -372,6 +285,56 @@
 
     <p><em>Jitter values below ~71 ns may be dominated by measurement quantization rather than actual source jitter.</em></p>
 
+    <h2>Appendix A: Horizontal Timing Rankings</h2>
+
+    <p>Sources ranked by mean H period deviation from NTSC nominal (lower is better, indicating more accurate timing).</p>
+
+    <table>
+        <tr>
+            <th>Rank</th>
+            <th>Source</th>
+            <th>Mean H Deviation</th>
+            <th>H RMS Jitter</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>leitch_sample</td>
+            <td>0.0001 µs</td>
+            <td><71 ns*</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>redpitaya_sample</td>
+            <td>0.0007 µs</td>
+            <td>87.57 ns</td>
+        </tr>
+    </table>
+
+    <h2>Appendix B: Vertical Timing Rankings</h2>
+
+    <p>Sources ranked by mean V period deviation from NTSC nominal (lower is better, indicating more accurate timing).</p>
+
+    <table>
+        <tr>
+            <th>Rank</th>
+            <th>Source</th>
+            <th>Mean V Deviation</th>
+            <th>V RMS Jitter</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>leitch_sample</td>
+            <td>0.0000 ms</td>
+            <td><0.07 µs*</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>redpitaya_sample</td>
+            <td>0.0002 ms</td>
+            <td>1.38 µs</td>
+        </tr>
+    </table>
+
     <div class="footnote">
         <p><strong>Methodology Notes:</strong></p>
         <ul>
@@ -383,6 +346,7 @@
             <li>Sample rate: 20.0 MS/s (50.0 ns resolution)</li>
             <li>Timing values quantized to sample period to eliminate false precision</li>
             <li><strong>*</strong> Values marked with asterisk are below the measurement noise floor (~71 ns) and cannot be reliably distinguished from zero</li>
+            <li>Signal validity detection excludes sync separator free-run oscillation (H periods outside 25–102 µs, sliding window of 200 periods with 90% plausibility threshold, gaps &lt;8.3 ms merged)</li>
         </ul>
         <p>Generated by <code>generate_timing_report.py</code></p>
     </div>
